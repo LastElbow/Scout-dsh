@@ -1,8 +1,8 @@
 {
   "name": "scout-dsh",
-  "version": "0.2.0",
+  "version": "0.4.0",
   "license": "MIT",
-  "description": "Scout — Google-first free web search + universal page reader for DSH. No API key needed (optional free Google CSE key unlocks full Search).",
+  "description": "Scout — lean token-efficient free web search + reader for any AI agent. RRF fusion, highlights excerpts, token budgets, page cache, SSRF-hardened. No API key needed.",
   "type": "module",
   "main": "index.js",
   "exports": {

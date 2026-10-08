@@ -8,16 +8,27 @@
 # No credentials needed. Tune behaviour via the row config below.
 # Full Google tier (optional): set googleCx to your search-engine ID and
 # export GOOGLE_API_KEY (Google's free tier: 100 queries/day, $0).
-# The key is read at request time, so exporting it needs no restart.
+# Keyed Brave tier (optional): export BRAVE_API_KEY — slots in first.
+# Keys are read at request time, so exporting them needs no restart.
+# Privacy: jinaFallback sends blocked-page URLs to the public reader proxy
+# (r.jina.ai). Set false for sensitive deployments.
 
 - insert:
     - id: scout
       name: 'scout-dsh'
       config:
         maxResults: 8
+        snippetChars: 220
+        rerank: true
+        recency: 'all'
+        redditBias: 'auto'
+        includeDomains: ''
+        excludeDomains: ''
+        withLinksSummary: false
         fetchTimeoutMs: 15000
         searchTimeoutMs: 12000
-        maxChars: 12000
+        maxChars: 8000
         jinaFallback: true
         googleApiKeyEnv: 'GOOGLE_API_KEY'
         googleCx: ''
+        braveApiKeyEnv: 'BRAVE_API_KEY'
