@@ -29,9 +29,11 @@ Results are fused across engines (same URL twice = retrieval agreement — easie
 
 ## Read
 
-Call `scout_read` with `{ url, query?, view?, maxChars?, tokenBudget?, withLinksSummary?, offset? }`.
+Call `scout_read` with `{ url, query?, view?, find?, findCursor?, maxChars?, tokenBudget?, withLinksSummary?, includeLinks?, offset? }`.
 - `view: 'highlights'` + `query` = cheapest (needs both). Extractive, order preserved.
-- `view: 'text'` = full article (default). `tokenBudget` (e.g. 1000) caps at budget*4 chars.
+- `view: 'links'` = page link list (anchor + URL + internal/external) — traverse docs without guessing subpage URLs. `includeLinks: true` appends the same list to text/highlights views.
+- `find: 'phrase'` = in-page matches with section + offset + context (wins over view); `findCursor` pages further matches.
+- `view: 'text'` = full article (default). Tables survive as markdown. `tokenBudget` (e.g. 1000) caps at budget*4 chars.
 - `withLinksSummary: true` appends `## Links`; default false saves tokens.
 - `offset` pages long reads; the footer tells you the next offset.
 Reddit URLs return post + top comments; SO returns question + top answers; HN/discourse similar.

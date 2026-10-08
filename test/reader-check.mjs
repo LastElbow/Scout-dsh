@@ -10,7 +10,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { extractArticle, htmlToText, resolveRedirect, slicePage } from '../lib/reader.js';
+import { extractArticle, htmlToText, resolveRedirect, slicePage, extractLinks, linksFromText, orderLinks, findInPage, isSignedUrl, tableToMarkdown, applyLeanView, readViaJina } from '../lib/reader.js';
 import { sanitizeUntrusted, extractHighlights } from '../lib/lean.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -68,10 +68,17 @@ const order = (text, ...needles) => {
   ok(!text.includes('Cookie banner') && !text.includes('Careers') && !text.includes('Sitemap'), 'nav-heavy: nav/header/footer stripped');
 }
 
-// 4. Table: cell values survive in order (flattened today — #5 upgrades to markdown)
+// 4. Table: compact markdown (header + separator + rows), cells in order
 {
   const { text } = extractArticle(fix('table.html'));
-  ok(order(text, 'A17', '4 GB', '12000', 'A57', '8 GB', '18000'), 'table: all cell values present in order');
+  ok(text.includes('| Model | RAM | Price |'), 'table: header row preserved');
+  ok(text.includes('| --- | --- | --- |'), 'table: markdown separator present');
+  ok(order(text, '| A17 | 4 GB | 12000 |', '| A57 | 8 GB | 18000 |'), 'table: rows intact in order');
+  const wide = `<table><tr>${'<td>x</td>'.repeat(12)}</tr><tr>${'<td>y</td>'.repeat(12)}</tr></table>`;
+  ok(tableToMarkdown(wide).split('\n').filter((l) => l.startsWith('|')).every((l) => (l.match(/\|/g) || []).length === 9), 'table: capped at 8 columns');
+  const tall = `<table>${'<tr><td>r</td></tr>'.repeat(30)}</table>`;
+  ok(tall && tableToMarkdown(tall).split('\n').filter((l) => l.startsWith('|')).length <= 14, 'table: capped at ~13 rows');
+  ok(tableToMarkdown('<table><tr></tr></table>') === '', 'table: rowless → empty string');
 }
 
 // 5. Code blocks fenced, entities decoded
@@ -156,6 +163,105 @@ const order = (text, ...needles) => {
     /* expected */
   }
   ok(blockedAt === 1, 'redirect: chain walks public hops, dies on the private one');
+}
+
+// 12. extractLinks: anchors, resolution, skips, relations, dedupe
+{
+  const links = extractLinks(fix('links.html'), 'https://docs-example.com/landing');
+  const urls = links.map((l) => l.url);
+  ok(urls.includes('https://docs-example.com/guide/install'), 'links: relative resolved');
+  ok(urls.includes('https://docs-example.com/guide/config'), 'links: absolute kept');
+  ok(urls.includes('https://github.com/example/repo'), 'links: external kept');
+  ok(urls.filter((u) => u.includes('/guide/install')).length === 1, 'links: duplicate collapsed');
+  ok(!urls.some((u) => /mailto|javascript|^.*#top/.test(u)), 'links: fragment/mailto/js skipped');
+  const byUrl = Object.fromEntries(links.map((l) => [l.url, l]));
+  ok(byUrl['https://docs-example.com/guide/install'].anchor === 'installation guide', 'links: anchor captured');
+  ok(byUrl['https://docs-example.com/guide/install'].relation === 'internal', 'links: same host → internal');
+  ok(byUrl['https://github.com/example/repo'].relation === 'external', 'links: other host → external');
+}
+
+// 13. linksFromText + orderLinks: bare URLs + query ranking
+{
+  const links = linksFromText('See https://a-example.com/x and https://b-example.com/y.', 'https://a-example.com/start');
+  ok(links.length === 2 && links[0].relation === 'internal' && links[1].relation === 'external', 'linksFromText: bare URLs with relations');
+  const ranked = orderLinks(
+    [
+      { anchor: 'unrelated page', url: 'https://z-example.com/other', relation: 'external' },
+      { anchor: 'installation guide', url: 'https://docs-example.com/guide/install', relation: 'internal' },
+    ],
+    'installation steps',
+  );
+  ok(ranked[0].url.includes('/guide/install'), 'orderLinks: anchor-term match outranks unrelated');
+  ok(orderLinks(ranked, '').map((l) => l.url).join(',') === ranked.map((l) => l.url).join(','), 'orderLinks: empty query keeps document order');
+}
+
+// 14. findInPage: sections, offsets, cursor paging, case-insensitivity
+{
+  const { text } = extractArticle(fix('article.html'));
+  const all = (text.toLowerCase().match(/edge-to-edge/g) || []).length;
+  ok(all >= 2, 'find: fixture has multiple occurrences to page through');
+  const first = findInPage(text, 'edge-to-edge', { maxMatches: 1 });
+  ok(first.matches.length === 1 && first.matches[0].excerpt.toLowerCase().includes('edge-to-edge'), 'find: offset points at the phrase');
+  ok(first.nextCursor !== null && first.nextCursor > first.matches[0].offset, 'find: cursor advances past returned match');
+  let cursor = first.nextCursor;
+  let total = 1;
+  let guard = 0;
+  while (cursor !== null && guard++ < 20) {
+    const pg = findInPage(text, 'EDGE-TO-EDGE', { cursor, maxMatches: 1 });
+    total += pg.matches.length;
+    if (pg.matches.length && pg.matches[0].offset < cursor) break; // overlap → fail below
+    cursor = pg.nextCursor;
+  }
+  ok(total === all && cursor === null, `find: cursor pages every occurrence without overlap (${total}/${all})`);
+  const none = findInPage(text, 'quantum chromodynamics');
+  ok(none.matches.length === 0 && none.nextCursor === null, 'find: no match → empty + null cursor');
+  const headed = findInPage('# Alpha\n\nbody one\n\n## Beta section\n\nbody two mentions needle here\n', 'needle');
+  ok(headed.matches.length === 1 && headed.matches[0].section === 'Beta section', 'find: nearest preceding heading reported');
+}
+
+// 15. applyLeanView: links + find + includeLinks rendering (offline, canned page)
+{
+  const full = {
+    url: 'https://docs-example.com/landing',
+    title: 'Docs landing page',
+    content: extractArticle(fix('links.html')).text,
+    engine: 'html',
+    statusCode: 200,
+    links: extractLinks(fix('links.html'), 'https://docs-example.com/landing'),
+  };
+  const lv = applyLeanView(full, { view: 'links', query: 'installation', maxChars: 8000 });
+  ok(lv.view === 'links' && lv.content.includes('installation guide — https://docs-example.com/guide/install'), 'view:links renders anchor — URL lines');
+  const fv = applyLeanView(full, { find: 'installation', maxChars: 8000 });
+  ok(fv.view === 'find' && fv.findMatches >= 1 && fv.content.includes('offset'), 'find view returns matches with offsets');
+  ok(fv.nextFindCursor === null || Number.isInteger(fv.nextFindCursor), 'find view carries a cursor (or null when exhausted)');
+  const il = applyLeanView({ ...full, content: '# T\n\nBody text here.' }, { view: 'text', maxChars: 8000, includeLinks: true });
+  ok(il.content.includes('## Links') && il.content.includes('https://github.com/example/repo'), 'includeLinks appends section to text view');
+  const legacy = applyLeanView({ ...full, content: '# T\n\nBody text here.' }, { view: 'text', maxChars: 8000, withLinksSummary: true });
+  ok(legacy.content.includes('## Links'), 'withLinksSummary still works as alias');
+}
+
+// 16. Jina signed-URL guard: fail closed before any fetch (offline-safe)
+{
+  for (const bad of [
+    'https://files.example.com/r?token=abc',
+    'https://files.example.com/r?x=1&sig=abc',
+    'https://files.example.com/r?signature=abc',
+    'https://files.example.com/r?access_token=abc',
+    'https://files.example.com/r?apikey=abc',
+    'https://files.example.com/r?API_KEY=abc',
+    'https://s3.example.com/f?X-Amz-Signature=abc&X-Amz-Expires=60',
+  ]) {
+    ok(isSignedUrl(bad), `signed: detected ${bad.slice(24, 40)}…`);
+  }
+  ok(!isSignedUrl('https://example.com/page?page=2&q=hello'), 'signed: plain query params pass');
+  ok(!isSignedUrl('https://example.com/atoken/page'), 'signed: path token (not param) passes');
+  try {
+    await readViaJina('https://files.example.com/r?token=abc', 1000, undefined, 4000, null);
+    fail++;
+    console.error('FAIL (proxied signed URL): readViaJina did not refuse');
+  } catch (e) {
+    ok(/credential-bearing/.test(e.message), 'jina: signed URL refused with guidance, no fetch attempted');
+  }
 }
 
 console.log(`\nREADER CHECK: ${pass} passed, ${fail} failed`);

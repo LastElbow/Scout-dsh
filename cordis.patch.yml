@@ -26,6 +26,7 @@
         includeDomains: ''
         excludeDomains: ''
         withLinksSummary: false
+        includeLinks: false
         fetchTimeoutMs: 15000
         searchTimeoutMs: 12000
         maxChars: 8000

@@ -42,7 +42,7 @@ flowchart TD
         Cache --> Fast["Fast-paths<br/>Reddit Arctic / SO API<br/>HN Firebase / Discourse .json<br/>Google News bridge"]
         Fast -->|hit > 80 chars| Lean
         Fast -->|miss| Gen["Generic HTML<br/>strip nav, prefer article/main"]
-        Gen -->|ok| Lean["Lean view + offset paging<br/>highlights ~1/5 tokens<br/>or text + tokenBudget"]
+        Gen -->|ok| Lean["Lean view + offset paging<br/>highlights ~1/5 · text + budget<br/>find matches · links list"]
         Gen -->|403 / 429 / thin| Jina["Public reader fallback r.jina.ai<br/>jinaFallback: false to skip"]
         Jina --> Lean
     end
@@ -50,7 +50,7 @@ flowchart TD
     Lean --> Answer(["Cited answer<br/>untrusted data, never instructions"])
 ```
 
-Lean rule: **highlights-first, never both views at once** — `view: 'highlights'` needs `query` (extractive, order preserved), `tokenBudget` caps at `budget × 4` chars on a sentence boundary.
+Lean rule: **highlights-first, never both views at once** — `view: 'highlights'` needs `query` (extractive, order preserved), `tokenBudget` caps at `budget × 4` chars on a sentence boundary. `view: 'links'` returns the page's link list (anchor + URL + internal/external) for traversal — follow subpages without guessing URLs. `find: 'phrase'` locates exact passages with section + offset + context (page `findCursor` for more matches). `<table>`s survive as compact markdown.
 
 ## Install (this profile)
 
@@ -132,7 +132,10 @@ All optional (defaults work, tuned for low tokens):
 - `fetchTimeoutMs` (default 15000)
 - `maxChars` (default 8000, 500–50000) — full-text cap (~2000 tokens)
 - `withLinksSummary` (default false) — append `## Links` URL list (off saves tokens)
-- `jinaFallback` (default true) — use the public text proxy (`r.jina.ai`) when a page blocks direct fetch. **Privacy:** the requested URL is sent to that third party — set `false` for sensitive deployments and use another result instead.
+- `includeLinks` (default false) — same `## Links` section with anchor labels (richer lines)
+- `find` (default `''`) — literal phrase to locate in the page; returns matches with section + offset + ~450-char context (wins over `view`)
+- `findCursor` (default 0) — continue a find past earlier matches (output names the next cursor)
+- `jinaFallback` (default true) — use the public text proxy (`r.jina.ai`) when a page blocks direct fetch. **Privacy:** the requested URL is sent to that third party — set `false` for sensitive deployments and use another result instead. Credential-bearing URLs (`?token=`, `?sig=`, `?X-Amz-*`, …) are **refused** for the fallback even when enabled (fail-closed); read those directly.
 - `googleApiKeyEnv` (default `'GOOGLE_API_KEY'`) — env var holding a pre-existing CSE key (legacy only — closed to new customers, discontinued 2027-01-01)
 - `googleCx` (default `''`) — Programmable Search Engine ID (empty = News RSS tier; new setups should not use this)
 - `braveApiKeyEnv` (default `'BRAVE_API_KEY'`) — env var holding the Brave key (empty = keyless backends only)
