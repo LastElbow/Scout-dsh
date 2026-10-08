@@ -1,0 +1,2 @@
+# Machine-local mount probe, written by the plugin on host boot
+mount-status.json

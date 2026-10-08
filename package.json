@@ -1,0 +1,35 @@
+{
+  "name": "scout-dsh",
+  "version": "0.2.0",
+  "license": "MIT",
+  "description": "Scout — Google-first free web search + universal page reader for DSH. No API key needed (optional free Google CSE key unlocks full Search).",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "lib/",
+    "cordis.patch.yml",
+    "SKILL.md",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "web-search",
+    "reader",
+    "reddit",
+    "free"
+  ]
+}

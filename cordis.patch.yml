@@ -1,0 +1,23 @@
+# Scout bundle patch
+#
+# Inserts this package as a profile layer. index.js registers:
+#   - web search provider  `scout`  (Google-first; keyless by default)
+#   - web fetch provider   `scout`  (Reddit/SO/HN/Discourse-aware reader)
+#   - tools `scout_search` + `scout_read`
+#
+# No credentials needed. Tune behaviour via the row config below.
+# Full Google tier (optional): set googleCx to your search-engine ID and
+# export GOOGLE_API_KEY (Google's free tier: 100 queries/day, $0).
+# The key is read at request time, so exporting it needs no restart.
+
+- insert:
+    - id: scout
+      name: 'scout-dsh'
+      config:
+        maxResults: 8
+        fetchTimeoutMs: 15000
+        searchTimeoutMs: 12000
+        maxChars: 12000
+        jinaFallback: true
+        googleApiKeyEnv: 'GOOGLE_API_KEY'
+        googleCx: ''
