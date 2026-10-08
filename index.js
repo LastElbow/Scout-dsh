@@ -63,7 +63,7 @@ const DEFAULTS = Object.freeze({
 
 export async function apply(ctx, config = {}) {
   const opts = { ...DEFAULTS, ...config };
-  const status = { build: '0.4.0', at: new Date().toISOString(), searchProvider: null, fetchProvider: null, defineTool: null, tools: {} };
+  const status = { build: '0.5.0', at: new Date().toISOString(), searchProvider: null, fetchProvider: null, defineTool: null, tools: {} };
   const report = () => writeMountStatus(status);
   try {
     // 1. Native web providers (power web_search / web_fetch + any agent glue).

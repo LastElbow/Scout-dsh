@@ -58,7 +58,7 @@ Already installed as a linked bundle (`scout-dsh`). After any code change:
 
 1. **Restart the DSH app** (the host requires a restart to load plugin updates — the installer reports `restart-required`).
 2. Verify: `mount-status.json` (next to `index.js`) appears after boot, e.g.
-   `{"build": "0.4.0", "searchProvider": "registered", "tools": {"scout_search": "registered-via-…", …}}`.
+   `{"build": "0.5.0", "searchProvider": "registered", "tools": {"scout_search": "registered-via-…", …}}`.
 3. Tools `scout_search` / `scout_read` are now available to agents, and `web_search` keeps working even with no `ANYSEARCH_API_KEY`.
 
 Fresh install elsewhere:
