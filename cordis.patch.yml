@@ -22,6 +22,8 @@
         snippetChars: 220
         rerank: true
         recency: 'auto'
+        intent: 'auto'
+        searchScope: 'auto'
         redditBias: 'auto'
         includeDomains: ''
         excludeDomains: ''

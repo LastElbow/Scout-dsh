@@ -11,6 +11,10 @@ import {
   toISODate,
   extractHighlights,
   classifySourceType,
+  classifyIntent,
+  parseIntentOverride,
+  resolveIntent,
+  selectSpecials,
 } from '../lib/lean.js';
 import {
   normalizeUrl,
@@ -316,6 +320,73 @@ ok(resolveRecency('bogus', 'latest phones') === 'week', 'recency: unknown value 
   ok(r[0].url.includes('shared.example.com'), 'fusion: URL found by all variants ranks first');
   ok(meta.partial === false && meta.unavailable === false && meta.variants.length === 3, 'fusion: meta reports healthy 3-variant search');
   ok(JSON.stringify(meta.providersSucceeded) === JSON.stringify(['fake-n3a']), 'fusion: meta names the serving backend');
+  ok(meta.intent === 'technical', 'fusion: meta reports primary-query intent');
+
+// 16. #6: intent classification, resolution, specials routing, intent-aware priors
+{
+  const cases = [
+    ['best android pomodoro apps', 'opinion'],
+    ['A17 vs A57 specs price', 'opinion'],
+    ['is Obsidian better than Notion for notes', 'opinion'],
+    ['how do I focus with ADHD programming', 'opinion'],
+    ['should i buy a mechanical keyboard', 'opinion'],
+    ['latest Android Studio version 2026', 'current'],
+    ['today bitcoin price', 'current'],
+    ['Android 16 release date', 'current'],
+    ['Node EADDRINUSE port already in use fix', 'technical'],
+    ['how to reset your password', 'technical'],
+    ['Kotlin StateFlow lifecycle collection', 'technical'],
+    ['stateflow lifecycle', 'technical'],
+    ['Android 16 edge-to-edge enforcement', 'technical'],
+    ['Python asyncio gather vs TaskGroup', 'opinion'], // vs beats code words
+    ['capital of France', 'factual'],
+    ['how tall is Mount Everest', 'factual'],
+    ['photosynthesis chemical equation', 'factual'],
+    ['study on spaced repetition effectiveness', 'research'],
+    ['attention is all you need transformer paper', 'research'],
+    ['arxiv paper on transformers', 'academic'],
+    ['xyzzy plugh nonsense', 'generic'],
+    ['', 'generic'],
+  ];
+  for (const [q, want] of cases) {
+    ok(classifyIntent(q) === want, `intent: "${q.slice(0, 40)}" → ${want}`);
+  }
+  ok(resolveIntent('technical', 'auto', 'best phones') === 'technical', 'resolve: explicit intent wins');
+  ok(resolveIntent('auto', 'forums', 'quiet query') === 'opinion', 'resolve: scope maps to intent');
+  ok(resolveIntent('auto', 'web', 'best phones') === 'generic', 'resolve: scope web → generic');
+  ok(resolveIntent('auto', 'auto', 'capital of France') === 'factual', 'resolve: auto classifies');
+  ok(resolveIntent('bogus', 'bogus', 'xyzzy') === 'generic', 'resolve: double-unknown falls back, never throws');
+  ok(parseIntentOverride('auto', 'auto') === null, 'override: auto/auto → null (classify)');
+  const specs = {
+    factual: { wikipedia: true, hn: false, stackoverflow: false },
+    technical: { wikipedia: false, hn: true, stackoverflow: true },
+    opinion: { wikipedia: false, hn: true, stackoverflow: false },
+    research: { wikipedia: true, hn: false, stackoverflow: true },
+    academic: { wikipedia: true, hn: false, stackoverflow: false },
+    current: { wikipedia: false, hn: false, stackoverflow: false },
+    generic: { wikipedia: false, hn: false, stackoverflow: false },
+  };
+  for (const [intent, want] of Object.entries(specs)) {
+    ok(JSON.stringify(selectSpecials(intent)) === JSON.stringify(want), `routing: ${intent} → correct specials`);
+  }
+  const DUEL = [
+    { name: 'stackoverflow', items: [{ url: 'https://stackoverflow.com/questions/1', title: 'Docker build fails on Apple silicon', snippet: 'docker build fails with platform error', source: 'stackoverflow' }] },
+    { name: 'reddit-pass', items: [{ url: 'https://www.reddit.com/r/docker/comments/1', title: 'Docker build fails on Apple silicon, my experience', snippet: 'my docker build experience on Apple silicon', source: 'reddit' }] },
+  ];
+  const techTop = rankPipeline(DUEL, 'docker build fails on Apple silicon', { maxResults: 5, intent: 'technical' });
+  const opinTop = rankPipeline(DUEL, 'docker build fails on Apple silicon', { maxResults: 5, intent: 'opinion' });
+  ok(techTop[0].url.includes('stackoverflow.com'), 'prior: technical lifts SO above forum twin');
+  ok(opinTop[0].url.includes('reddit.com'), 'prior: opinion lifts lived experience above SO twin');
+  // Lexically tied twins: only the intent prior may break the tie (blog listed first).
+  const FACT = [
+    { name: 'ddg', items: [{ url: 'https://blog-example.com/paris', title: 'Capital of France facts', snippet: 'facts about the capital of France', source: 'web' }] },
+    { name: 'wikipedia', items: [{ url: 'https://en.wikipedia.org/wiki/Paris', title: 'Capital of France facts', snippet: 'facts about the capital of France', source: 'wikipedia' }] },
+  ];
+  const factualTop = rankPipeline(FACT, 'capital of France', { maxResults: 5 });
+  const genericTop = rankPipeline(FACT, 'capital of France', { maxResults: 5, intent: 'generic' });
+  ok(factualTop[0].url.includes('wikipedia.org'), 'prior: auto-classified factual lifts reference above blog twin');
+  ok(genericTop[0].url.includes('blog-example.com'), 'prior: generic keeps stable order (no prior applied)');
+}
 }
 
 console.log(`\nLEAN CHECK: ${pass} passed, ${fail} failed`);

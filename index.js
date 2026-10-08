@@ -36,6 +36,8 @@ const DEFAULTS = Object.freeze({
   snippetChars: 220,
   rerank: true,
   recency: 'auto',
+  intent: 'auto',
+  searchScope: 'auto',
   redditBias: 'auto',
   includeDomains: '',
   excludeDomains: '',
@@ -145,6 +147,8 @@ class FreeWebSearchProvider {
       excludeDomains: request.excludeDomains ?? this.opts.excludeDomains,
       rerank: this.opts.rerank,
       recency: request.recency ?? this.opts.recency,
+      intent: request.intent ?? this.opts.intent,
+      searchScope: request.searchScope ?? this.opts.searchScope,
       redditBias: request.redditBias ?? this.opts.redditBias,
       snippetChars: this.opts.snippetChars,
     });
@@ -206,6 +210,8 @@ function registerTools(ctx, opts, defineTool, status = null) {
     excludeDomains: { type: 'string', description: 'Comma-separated hosts to drop (e.g. "pinterest.com"). Empty = none.' },
     rerank: { type: 'boolean', description: 'Fuse + rerank across engines (default true; false = raw backend order).' },
     recency: { type: 'string', description: "auto (default: detects latest/today/version/2026 hints), day, week, month, year, or all. Confirmed-fresh outranks date-unknown when a window applies." },
+    intent: { type: 'string', description: 'auto (default: classifies the query), factual, current, technical, opinion, research, news, generic, academic. Routes specials (Wikipedia/SO/HN/reddit-pass) + tunes source priors.' },
+    searchScope: { type: 'string', description: 'auto (default), web, news, docs, forums, code, academic. Coarse intent override; explicit intent wins over scope.' },
     redditBias: { type: 'string', description: 'auto (default: extra reddit pass for opinion queries), on, or off.' },
   };
   const readParams = {
@@ -259,6 +265,14 @@ function registerTools(ctx, opts, defineTool, status = null) {
         if (!['auto', 'on', 'off'].includes(redditBias)) {
           throw new Error("redditBias must be one of: auto, on, off");
         }
+        const intent = String(args?.intent ?? opts.intent ?? 'auto').trim().toLowerCase();
+        const searchScope = String(args?.searchScope ?? opts.searchScope ?? 'auto').trim().toLowerCase();
+        if (!['auto', 'factual', 'current', 'technical', 'opinion', 'research', 'news', 'generic', 'academic'].includes(intent)) {
+          throw new Error("intent must be one of: auto, factual, current, technical, opinion, research, news, generic, academic");
+        }
+        if (!['auto', 'web', 'news', 'docs', 'forums', 'code', 'academic'].includes(searchScope)) {
+          throw new Error("searchScope must be one of: auto, web, news, docs, forums, code, academic");
+        }
         const { results, meta } = await freeSearch(query, {
           maxResults,
           timeoutMs: opts.searchTimeoutMs,
@@ -270,6 +284,8 @@ function registerTools(ctx, opts, defineTool, status = null) {
           rerank: args?.rerank ?? opts.rerank,
           recency,
           redditBias,
+          intent,
+          searchScope,
           snippetChars,
           alternatives: args?.alternatives ?? '',
         });
@@ -581,6 +597,8 @@ try {
     snippetChars: z.number().step(1).min(80).max(500).default(DEFAULTS.snippetChars),
     rerank: z.boolean().default(DEFAULTS.rerank),
     recency: z.string().default(DEFAULTS.recency),
+    intent: z.string().default(DEFAULTS.intent),
+    searchScope: z.string().default(DEFAULTS.searchScope),
     redditBias: z.string().default(DEFAULTS.redditBias),
     includeDomains: z.string().default(DEFAULTS.includeDomains),
     excludeDomains: z.string().default(DEFAULTS.excludeDomains),

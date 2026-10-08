@@ -23,7 +23,7 @@ flowchart TD
         S --> N["Google News RSS<br/>keyless, always on"]
         S --> D["DuckDuckGo HTML<br/>back off once on 429"]
         S --> B["Bing RSS x2 (unofficial)<br/>normal + reddit-biased"]
-        S --> W["Wikipedia / HN / SO APIs"]
+        S --> W["Specials by intent<br/>Wikipedia / HN / SO as routed"]
         S --> A["Arctic Shift<br/>only if r/foo named"]
     end
 
@@ -126,6 +126,8 @@ All optional (defaults work, tuned for low tokens):
 - `rerank` (default true) — RRF fusion + heuristic rerank with per-source diversity guard
 - `alternatives` (default `''`) — up to 4 alternate queries, newline-separated; every variant searches, one fused/deduped/reranked list returns (a 5th errors)
 - `recency` (default `'auto'`) — `auto|day|week|month|year|all`; auto detects latest/today/version/price/year hints. With any window (explicit or auto-resolved), confirmed-fresh results outrank `date: unknown`; undated results are always kept, never dropped
+- `intent` (default `'auto'`) — `auto|factual|current|technical|opinion|research|news|generic|academic`; routes specials + tunes priors
+- `searchScope` (default `'auto'`) — `auto|web|news|docs|forums|code|academic`; coarse intent override (explicit `intent` wins)
 - `redditBias` (default `'auto'`) — extra reddit pass for opinion/experience queries; `on`/`off` to force
 - `includeDomains` / `excludeDomains` (default `''`) — comma-separated hosts (`"github.com, *.substack.com"`)
 - `searchTimeoutMs` (default 12000)
@@ -166,6 +168,7 @@ Private/local targets are refused — SSRF guard covers IPv4 (incl. hex/octal fo
 - Keyed Bing Search APIs were retired by Microsoft (2025-08-11) — Scout's Bing RSS backend is a separate unofficial public endpoint, kept failure-isolated like every other keyless backend.
 - DuckDuckGo throttles aggressive IPs (429/202) — a circuit breaker skips a throttled backend for ~3 min instead of paying a backoff on every search; other backends cover meanwhile. Suspect queries degrade to honest-empty rather than junk (Bing results must share a query term; DDG ad links are dropped).
 - The extra reddit-biased Bing pass runs only for opinion/experience queries (or `redditBias: 'on'`) — factual queries aren't forum-biased and Bing isn't hit twice.
+- Specials route by query intent (`intent: auto` classifies; override with `intent` or coarse `searchScope`): factual → web + Wikipedia · technical → web + StackOverflow + HN · opinion → web + reddit-pass + HN (+ Arctic when you name `r/foo`) · current/news → web backends (Google News RSS rides along) · research → web + Wikipedia + SO · academic → web + Wikipedia · generic → web only. Web backends always run, so a misclassification costs depth, never the whole search. Ranking adds a small intent × source-type prior (docs win technical, forums win opinion) that never swamps lexical relevance.
 - Same URL in two engines fuses by Reciprocal Rank Fusion (canonical key strips tracking params, `www.`, `http/https`, AMP variants) — but read it as **retrieval agreement** (easy to find), not independent confirmation: same-host multi-provider hits report `providerCount` separately from `independentHostCount`, and the rerank agreement bonus is capped so it can never swamp lexical relevance. A canonical miss can still duplicate; the heuristic rerank sits on top, not instead.
 - Dates come from backends that expose them (News/Bing RSS, HN, SO, Arctic); DDG/Wikipedia/CSE don't, and undated results are kept under `recency` filters rather than dropped.
 - Reddit's own `.json` 403s without OAuth (Arctic covers threads; very fresh posts take a while to index).

@@ -24,7 +24,7 @@ Call `scout_search` with `{ query, alternatives?, maxResults?, snippetChars?, in
 `alternatives`: up to 4 extra queries, newline-separated — all variants search, one fused ranking returns.
 `includeDomains`/`excludeDomains` are comma-separated hosts (`"github.com, stackoverflow.com"`).
 `snippetChars` 80-500 (default 220). `recency`: auto (default)/day/week/month/year/all — auto detects current-topic hints; a 5th alternative errors, undated results are kept but rank below confirmed-fresh when a window applies.
-`redditBias`: auto (default)/on/off — extra reddit pass for opinion queries only.
+`intent`: auto (default)/factual/current/technical/opinion/research/news/generic/academic — routes specials (Wikipedia/SO/HN/reddit-pass) so factual queries skip forum noise; `searchScope`: auto/web/news/docs/forums/code/academic is the coarse override. `redditBias`: auto (default)/on/off forces or suppresses the reddit pass.
 Results are fused across engines (same URL twice = retrieval agreement — easier to find, not confirmed), sanitized, and wrapped as untrusted data — not instructions. Hits carry stable `[SRn]` ids + domain + source type; provider outages surface as a `Partial results:` footer, and all-failed is an explicit outage message, not an empty list.
 
 ## Read
