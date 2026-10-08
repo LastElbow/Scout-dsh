@@ -1,6 +1,6 @@
 ---
 name: scout-dsh
-description: Scout — lean token-efficient free web search + reader for any AI agent. Free-first provider ladder (keyless DDG/Bing-RSS/Google-News + specials; optional Brave key, legacy CSE only). RRF fusion, highlights excerpts, token budgets, paging. No key needed.
+description: Scout — lean token-efficient free web search + reader for any AI agent. Free-first provider ladder (keyless DDG/Bing-RSS/Google-News + specials; optional Brave key, legacy CSE, optional self-hosted SearXNG). RRF fusion, highlights excerpts, token budgets, paging, PDF text. No key needed.
 ---
 
 # Scout skill — lean web for agents
@@ -36,6 +36,6 @@ Call `scout_read` with `{ url, query?, view?, find?, findCursor?, maxChars?, tok
 - `view: 'text'` = full article (default). Tables survive as markdown. `tokenBudget` (e.g. 1000) caps at budget*4 chars.
 - `withLinksSummary: true` appends `## Links`; default false saves tokens.
 - `offset` pages long reads; the footer tells you the next offset.
-Reddit URLs return post + top comments; SO returns question + top answers; HN/discourse similar.
+Reddit URLs return post + top comments; SO returns question + top answers; HN/discourse similar; text PDFs are extracted locally (scanned/encrypted fail honestly).
 If capped, re-call with a larger `tokenBudget` (up to 12500) or `maxChars` (up to 50000).
 Note: the 403-fallback sends the URL to the public reader proxy r.jina.ai — use another result for sensitive URLs.

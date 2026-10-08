@@ -100,7 +100,7 @@ for (const bad of [
   'http://foo.corp/',
   'http://intranet/',
   'http://router/',
-  'http://localhost:29395/http://example.com/', // would-be proxy bypass shape
+  'http://localhost:29395/http://example.com/', // localhost stays blocked even as a proxy wrapper
   'ftp://example.com/file',
   'javascript:alert(1)',
 ]) {

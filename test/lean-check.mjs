@@ -29,6 +29,7 @@ import {
   parseAlternatives,
   resolveRecency,
   partitionDatedFirst,
+  parseSearxng,
   freeSearch,
 } from '../lib/search.js';
 import { assertPublicUrl, pageCacheKey } from '../lib/reader.js';
@@ -321,6 +322,22 @@ ok(resolveRecency('bogus', 'latest phones') === 'week', 'recency: unknown value 
   ok(meta.partial === false && meta.unavailable === false && meta.variants.length === 3, 'fusion: meta reports healthy 3-variant search');
   ok(JSON.stringify(meta.providersSucceeded) === JSON.stringify(['fake-n3a']), 'fusion: meta names the serving backend');
   ok(meta.intent === 'technical', 'fusion: meta reports primary-query intent');
+
+// 17. #7: SearXNG JSON mapper
+{
+  const sear = parseSearxng({
+    results: [
+      { title: 'Example Guide', url: 'https://example.com/guide', content: 'A guide snippet here.' },
+      { title: '', url: 'https://notitle.example/', content: 'No title here.' },
+      { title: 'FTP', url: 'ftp://example.com/f', content: 'skip me' },
+      { title: 'No URL', content: 'skip me' },
+    ],
+  }, 8);
+  ok(sear.length === 2, 'searxng: non-http + missing URLs dropped');
+  ok(sear[0].source === 'searxng' && sear[0].title === 'Example Guide', 'searxng: fields mapped');
+  ok(sear[1].title === 'notitle.example', 'searxng: missing title falls back to host');
+  ok(parseSearxng(null).length === 0 && parseSearxng({ results: [] }).length === 0, 'searxng: null/empty → []');
+}
 
 // 16. #6: intent classification, resolution, specials routing, intent-aware priors
 {

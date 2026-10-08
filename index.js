@@ -54,6 +54,11 @@ const DEFAULTS = Object.freeze({
   // primary and slots in first when set. Read at request time;
   // empty = keyless backends only.
   braveApiKeyEnv: 'BRAVE_API_KEY',
+  // Optional self-hosted metasearch: SearXNG base URL slots in first when
+  // set (direct value or SEARXNG_URL env). Empty = off. Operator-trusted
+  // config — result URLs stay untrusted and still go through the SSRF guard.
+  searxngUrl: '',
+  searxngUrlEnv: 'SEARXNG_URL',
 });
 
 export async function apply(ctx, config = {}) {
@@ -143,6 +148,7 @@ class FreeWebSearchProvider {
       signal,
       google: resolveGoogleOpts(this.opts),
       brave: resolveBraveOpts(this.opts),
+      searxng: resolveSearxngOpts(this.opts),
       includeDomains: request.includeDomains ?? this.opts.includeDomains,
       excludeDomains: request.excludeDomains ?? this.opts.excludeDomains,
       rerank: this.opts.rerank,
@@ -279,6 +285,7 @@ function registerTools(ctx, opts, defineTool, status = null) {
           signal: exec?.signal,
           google: resolveGoogleOpts(opts),
           brave: resolveBraveOpts(opts),
+          searxng: resolveSearxngOpts(opts),
           includeDomains: args?.includeDomains ?? opts.includeDomains,
           excludeDomains: args?.excludeDomains ?? opts.excludeDomains,
           rerank: args?.rerank ?? opts.rerank,
@@ -513,6 +520,22 @@ function resolveGoogleOpts(opts) {
 }
 
 /**
+ * Resolve the optional SearXNG tier at request time: direct config wins,
+ * else the env var. Empty = off (no behavior change).
+ */
+function resolveSearxngOpts(opts) {
+  const direct = String(opts.searxngUrl ?? '').trim();
+  if (direct) return { url: direct };
+  let env = '';
+  try {
+    env = process.env[opts.searxngUrlEnv] ?? '';
+  } catch {
+    env = '';
+  }
+  return { url: String(env ?? '').trim() };
+}
+
+/**
  * Resolve the optional Brave tier at request time (env read per call).
  * Returns { key } — empty key means keyless backends only.
  */
@@ -608,6 +631,8 @@ try {
     googleApiKeyEnv: z.string().default(DEFAULTS.googleApiKeyEnv),
     googleCx: z.string().default(DEFAULTS.googleCx),
     braveApiKeyEnv: z.string().default(DEFAULTS.braveApiKeyEnv),
+    searxngUrl: z.string().default(DEFAULTS.searxngUrl),
+    searxngUrlEnv: z.string().default(DEFAULTS.searxngUrlEnv),
   });
 } catch {
   Config = undefined;

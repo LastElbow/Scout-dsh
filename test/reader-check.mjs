@@ -10,7 +10,8 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { extractArticle, htmlToText, resolveRedirect, slicePage, extractLinks, linksFromText, orderLinks, findInPage, isSignedUrl, tableToMarkdown, applyLeanView, readViaJina } from '../lib/reader.js';
+import { extractArticle, htmlToText, resolveRedirect, slicePage, extractLinks, linksFromText, orderLinks, findInPage, isSignedUrl, tableToMarkdown, applyLeanView, readViaJina, extractPdfText, pdfToMarkdown } from '../lib/reader.js';
+import { deflateSync } from 'node:zlib';
 import { sanitizeUntrusted, extractHighlights } from '../lib/lean.js';
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
@@ -262,6 +263,40 @@ const order = (text, ...needles) => {
   } catch (e) {
     ok(/credential-bearing/.test(e.message), 'jina: signed URL refused with guidance, no fetch attempted');
   }
+}
+
+// 17. PDF extraction: literal/hex/array/octal text, Flate streams, honest failures
+{
+  const pdfDoc = (streams, extra = '', count = 1) => {
+    const pages = Array.from({ length: count }, (_, i) => `${10 + i} 0 obj\n<</Type /Page /Parent 2 0 R /Contents ${20 + i} 0 R>>\nendobj`).join('\n');
+    const contents = streams.map((s, i) => `${20 + i} 0 obj\n<</Length ${s.length}>>\nstream\n${s}\nendstream\nendobj`).join('\n');
+    return `%PDF-1.4\n1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nendobj\n2 0 obj\n<</Type /Pages /Kids [${Array.from({ length: count }, (_, i) => `${10 + i} 0 R`).join(' ')}] /Count ${count}>>\nendobj\n${pages}\n${contents}\n${extra}trailer\n<</Root 1 0 R>>\n`;
+  };
+  const buf = (s) => Buffer.from(s, 'latin1');
+  // Extractor ignores sub-80-char PDFs (scanned-like tripwire) — pad unit streams.
+  const filler = ' (Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor) Tj';
+  const t1 = extractPdfText(buf(pdfDoc([`BT /F1 12 Tf 72 720 Td (Hello PDF World) Tj${filler} ET`])));
+  ok(t1.text.includes('Hello PDF World') && t1.pageCount === 1, 'pdf: literal Tj extracted, page counted');
+  const t2 = extractPdfText(buf(pdfDoc([`BT [(Hello) 120 (World)] TJ${filler} ET`])));
+  ok(t2.text.includes('Hello World'), 'pdf: TJ array joined');
+  const t3 = extractPdfText(buf(pdfDoc([`BT <48656C6C6F> Tj${filler} ET`])));
+  ok(t3.text.includes('Hello'), 'pdf: standalone hex Tj decoded');
+  const t4 = extractPdfText(buf(pdfDoc(['BT (\\101\\102) Tj (filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler) Tj ET'])));
+  ok(t4.text.includes('AB'), 'pdf: octal escapes decoded');
+  // FlateDecode stream (binary-safe assembly).
+  const flateBody = deflateSync(Buffer.from('BT (Flate Text Here) Tj (filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler filler) Tj ET', 'latin1'));
+  const head = '%PDF-1.4\n1 0 obj\n<</Type /Catalog /Pages 2 0 R>>\nendobj\n2 0 obj\n<</Type /Pages /Kids [3 0 R] /Count 1>>\nendobj\n3 0 obj\n<</Type /Page /Parent 2 0 R /Contents 4 0 R>>\nendobj\n4 0 obj\n<</Length 0 /Filter /FlateDecode>>\nstream\n';
+  const tail = '\nendstream\nendobj\ntrailer\n<</Root 1 0 R>>\n';
+  const t5 = extractPdfText(Buffer.concat([Buffer.from(head, 'latin1'), flateBody, Buffer.from(tail, 'latin1')]));
+  ok(t5.text.includes('Flate Text Here'), 'pdf: FlateDecode stream inflated');
+  const longFiller = Array(12).fill('(Lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore) Tj').join(' ');
+  const t6 = extractPdfText(buf(pdfDoc([`BT (Page one text here and more words to fill) Tj ${longFiller} ET`, `BT (Page two text here and more words to fill) Tj ${longFiller} ET`], '', 2)));
+  ok(t6.pageCount === 2, 'pdf: two pages counted');
+  const md = pdfToMarkdown('https://example.com/doc.pdf', 'doc.pdf', t6);
+  ok(md.engine === 'pdf' && md.content.includes('[p~1/2]') && md.content.includes('[p~2/2]'), 'pdf: markdown carries estimated page markers');
+  throws(() => extractPdfText(buf(pdfDoc(['BT (x) Tj ET'], '/Encrypt 5 0 R\n5 0 obj\n<</Filter /Standard>>\nendobj\n'))), 'pdf: encrypted throws honestly');
+  throws(() => extractPdfText(buf('just some html, not a pdf')), 'pdf: non-PDF throws honestly');
+  throws(() => extractPdfText(buf(pdfDoc(['BT (hi) Tj ET']))), 'pdf: text-less (scanned-like) throws honestly');
 }
 
 console.log(`\nREADER CHECK: ${pass} passed, ${fail} failed`);

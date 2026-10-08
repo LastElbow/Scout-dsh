@@ -96,8 +96,10 @@ Scout is provider-agnostic. The serving order per search:
    change or be blocked without notice).
 3. **Specialized free sources** — Wikipedia OpenSearch, HN Algolia, StackExchange
    API, Arctic Shift (Reddit full-text, only when a subreddit is named).
-4. **Optional self-hosted metasearch** — SearXNG via `SEARXNG_URL` (planned, see
-   #7; not implemented yet).
+4. **Optional self-hosted metasearch** — SearXNG via `searxngUrl` config or
+   `SEARXNG_URL` env (empty = off). Slots in first when set, failure-isolated
+   like every other backend. The instance URL is operator-trusted config;
+   result URLs stay untrusted and still go through the SSRF-guarded reader.
 
 Why not scrape google.com? Its HTML is a JS shell — results render
 client-side, so plain-HTTP scraping returns zero links. News RSS is the honest
@@ -141,6 +143,7 @@ All optional (defaults work, tuned for low tokens):
 - `googleApiKeyEnv` (default `'GOOGLE_API_KEY'`) — env var holding a pre-existing CSE key (legacy only — closed to new customers, discontinued 2027-01-01)
 - `googleCx` (default `''`) — Programmable Search Engine ID (empty = News RSS tier; new setups should not use this)
 - `braveApiKeyEnv` (default `'BRAVE_API_KEY'`) — env var holding the Brave key (empty = keyless backends only)
+- `searxngUrl` (default `''`) — self-hosted SearXNG base URL (empty = off); `searxngUrlEnv` (default `'SEARXNG_URL'`) is the env fallback
 
 ## Lean workflow (cheapest first — for humans and agents)
 
@@ -157,8 +160,9 @@ All optional (defaults work, tuned for low tokens):
 3. StackOverflow / StackExchange questions → question + top answers via the free API (direct HTML 403s bots).
 4. HN items → story + top comments via the Firebase API.
 5. Discourse `/t/slug/id` → tries `…json`, returns topic + first 10 posts.
-6. Anything else → fetches HTML with a browser UA, strips nav/script/footer, prefers `<article>`/`<main>`, converts to markdown-ish text.
-7. Blocked (403/429/empty) → retries through the public reader proxy (`r.jina.ai`, no key) — see the privacy note in Config.
+6. Anything else → fetches HTML with a browser UA, strips nav/script/footer, prefers `<article>`/`<main>`, converts to markdown-ish text (tables kept as markdown).
+7. PDFs → local text extraction (no deps): uncompressed + Flate streams, page markers estimated. Encrypted or scanned-image PDFs fail with a clear error instead of junk.
+8. Blocked (403/429/empty) → retries through the public reader proxy (`r.jina.ai`, no key) — see the privacy note in Config.
 
 Private/local targets are refused — SSRF guard covers IPv4 (incl. hex/octal forms, `0.0.0.0`, CGNAT `100.64/10`), IPv6 (loopback, link-local, unique-local, mapped), `.localhost/.local/.internal`, dotless hosts, and re-validates every redirect hop.
 
@@ -172,7 +176,7 @@ Private/local targets are refused — SSRF guard covers IPv4 (incl. hex/octal fo
 - Same URL in two engines fuses by Reciprocal Rank Fusion (canonical key strips tracking params, `www.`, `http/https`, AMP variants) — but read it as **retrieval agreement** (easy to find), not independent confirmation: same-host multi-provider hits report `providerCount` separately from `independentHostCount`, and the rerank agreement bonus is capped so it can never swamp lexical relevance. A canonical miss can still duplicate; the heuristic rerank sits on top, not instead.
 - Dates come from backends that expose them (News/Bing RSS, HN, SO, Arctic); DDG/Wikipedia/CSE don't, and undated results are kept under `recency` filters rather than dropped.
 - Reddit's own `.json` 403s without OAuth (Arctic covers threads; very fresh posts take a while to index).
-- No JS rendering — heavy SPA pages return their static HTML text. No PDFs.
+- No JS rendering — heavy SPA pages return their static HTML text. Text PDFs are extracted locally (uncompressed + Flate streams, page numbers estimated); scanned-image and encrypted PDFs fail honestly instead of returning junk.
 - Token counts are `chars/4` estimates: fine for English budgeting, overcounts CJK and code — never presented as precise.
 - SSRF honesty: no raw-socket DNS pinning without extra deps, so DNS-rebinding inside a short TTL is mitigated (short timeouts + per-hop validation), not eliminated.
 - Zero npm dependencies, Node 20+.

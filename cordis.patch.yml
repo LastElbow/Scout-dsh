@@ -36,3 +36,5 @@
         googleApiKeyEnv: 'GOOGLE_API_KEY'
         googleCx: ''
         braveApiKeyEnv: 'BRAVE_API_KEY'
+        searxngUrl: ''
+        searxngUrlEnv: 'SEARXNG_URL'
