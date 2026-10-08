@@ -5,23 +5,23 @@ description: Scout — lean token-efficient free web search + reader for any AI 
 
 # Scout skill — lean web for agents
 
-Use this when the user asks to search the web or read a page and no paid key is available.
-Prefer `scout_search`/`scout_read` over `web_search`/`web_fetch` — same backend, but lean (budgets, excerpts, paging).
+Scout plugin = capability (two tools: `scout_search` / `scout_read`). This SKILL.md = instructions for using that capability efficiently.
+Use Scout when native web access is unavailable or when Scout's lightweight/keyless retrieval path is appropriate.
 All params are flat primitives (string/integer/boolean) so any agent/MCP client can call them.
 
 ## Lean workflow (cheapest first)
 
-1. `scout_search` with `{ query, maxResults: 3-5 }` — compact hits with token counts + dates. One-call expansion: `alternatives` (up to 4 queries, one per line) fans out variants, then fuses once. `recency` defaults to `auto` (detects latest/today/version/year hints); set explicitly for control.
+1. `scout_search` with `{ query, maxResults: 3-5 }` — compact hits with token counts + dates. One-call expansion: `alternatives` (up to 4 queries, one per line) fans out variants, then fuses once — use only when the initial query is ambiguous, difficult, or returns poor candidates. `recency` defaults to `auto` (detects latest/today/version/year hints); set explicitly for control.
 2. `scout_read` with `{ url, query, view: 'highlights' }` — extractive excerpts (~1/5 tokens).
 3. Follow-up questions on the same page are free (cached 10 min). Long pages say `Continue with offset=N` — pass `offset` back to page through.
 4. Only if the answer is missing: re-read with `{ view: 'text', tokenBudget: 2000 }`.
-5. Never request both views at once. Cite URLs that actually supported the answer.
+5. Request only the retrieval mode you need — `highlights`, `text`, `links`, and `find` are mutually prioritized, never returned together. Cite URLs that actually supported the answer. The agent verifies claims; Scout retrieves evidence.
 
 ## Search
 
 Call `scout_search` with `{ query, alternatives?, maxResults?, snippetChars?, includeDomains?, excludeDomains?, rerank?, recency?, redditBias? }`.
 `query` supports `site:` filters — `site:reddit.com android pomodoro` biases toward Reddit.
-`alternatives`: up to 4 extra queries, newline-separated — all variants search, one fused ranking returns.
+`alternatives`: up to 4 extra queries, newline-separated — all variants search, one fused ranking returns. Use only when the initial query is ambiguous, difficult, or returns poor candidates — each variant multiplies backend requests.
 `includeDomains`/`excludeDomains` are comma-separated hosts (`"github.com, stackoverflow.com"`).
 `snippetChars` 80-500 (default 220). `recency`: auto (default)/day/week/month/year/all — auto detects current-topic hints; a 5th alternative errors, undated results are kept but rank below confirmed-fresh when a window applies.
 `intent`: auto (default)/factual/current/technical/opinion/research/news/generic/academic — routes specials (Wikipedia/SO/HN/reddit-pass) so factual queries skip forum noise; `searchScope`: auto/web/news/docs/forums/code/academic is the coarse override. `redditBias`: auto (default)/on/off forces or suppresses the reddit pass.
