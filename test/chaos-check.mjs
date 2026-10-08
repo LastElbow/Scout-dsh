@@ -37,7 +37,7 @@ const OPTS = { maxResults: 8, timeoutMs: 1000, rerank: true, recency: 'all', red
 
 // 1. One provider down → the rest still serve
 {
-  const r = await freeSearch('android pomodoro timers', {
+  const { results: r, meta } = await freeSearch('android pomodoro timers', {
     ...OPTS,
     backends: [
       okBackend('chaos-ok-1', [hit('a-example.com', 'p1', 'Android pomodoro timers guide', 'timer review', 'ddg')]),
@@ -45,11 +45,13 @@ const OPTS = { maxResults: 8, timeoutMs: 1000, rerank: true, recency: 'all', red
     ],
   });
   ok(r.length === 1 && r[0].url.includes('a-example.com'), '1 down: survivor still serves');
+  ok(meta.partial === true && meta.unavailable === false, '1 down: meta.partial, not unavailable');
+  ok(meta.providersFailed.some((f) => f.name === 'chaos-429-1'), '1 down: failed backend named in meta');
 }
 
 // 2. Two of three down → partial, not blank
 {
-  const r = await freeSearch('android pomodoro timers', {
+  const { results: r, meta } = await freeSearch('android pomodoro timers', {
     ...OPTS,
     backends: [
       okBackend('chaos-ok-2', [hit('b-example.com', 'p1', 'Android pomodoro timers guide', 'timer review', 'ddg')]),
@@ -58,21 +60,23 @@ const OPTS = { maxResults: 8, timeoutMs: 1000, rerank: true, recency: 'all', red
     ],
   });
   ok(r.length === 1, '2 down: partial results, no throw');
+  ok(meta.partial === true && meta.providersSucceeded.join(',') === 'chaos-ok-2', '2 down: meta names survivor + failures');
 }
 
 // 3. All down → honest empty, still no throw (explicit unavailable copy is #4's job)
 {
-  const r = await freeSearch('android pomodoro timers', {
+  const { results: r, meta } = await freeSearch('android pomodoro timers', {
     ...OPTS,
     backends: [failBackend('chaos-429-3', 'HTTP 429 for ddg'), failBackend('chaos-tmo-3', 'timeout')],
   });
   ok(Array.isArray(r) && r.length === 0, 'all down: empty array, no throw');
+  ok(meta.unavailable === true && meta.partial === false, 'all down: meta.unavailable distinct from partial');
 }
 
 // 4. Hung backend → timeout guard degrades it, search still returns
 {
   const t0 = Date.now();
-  const r = await freeSearch('android pomodoro timers', {
+  const { results: r } = await freeSearch('android pomodoro timers', {
     ...OPTS,
     backends: [
       okBackend('chaos-ok-4', [hit('c-example.com', 'p1', 'Android pomodoro timers guide', 'timer review', 'ddg')]),
@@ -86,7 +90,7 @@ const OPTS = { maxResults: 8, timeoutMs: 1000, rerank: true, recency: 'all', red
 
 // 5. Duplicates across engines merge instead of doubling
 {
-  const r = await freeSearch('stateflow lifecycle', {
+  const { results: r } = await freeSearch('stateflow lifecycle', {
     ...OPTS,
     backends: [
       okBackend('chaos-ok-5a', [hit('d-example.com', 's', 'StateFlow lifecycle guide', 'collect', 'ddg')]),
@@ -98,7 +102,7 @@ const OPTS = { maxResults: 8, timeoutMs: 1000, rerank: true, recency: 'all', red
 
 // 6. Malformed / empty / garbage backends never poison the search
 {
-  const r = await freeSearch('stateflow lifecycle', {
+  const { results: r } = await freeSearch('stateflow lifecycle', {
     ...OPTS,
     backends: [
       { name: 'chaos-garbage-6', run: async () => [{ url: 'not a url', title: null, snippet: undefined }] },

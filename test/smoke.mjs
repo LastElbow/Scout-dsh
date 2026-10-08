@@ -21,8 +21,9 @@ if (readFlag !== -1) {
 
 const query = args.join(' ') || 'best android pomodoro apps reddit';
 console.log(`[search] ${query}`);
-const results = await freeSearch(query, { maxResults: 8, timeoutMs: 15000 });
-console.log(`got ${results.length} results`);
+const { results, meta } = await freeSearch(query, { maxResults: 8, timeoutMs: 15000 });
+console.log(`got ${results.length} results (partial=${meta.partial} unavailable=${meta.unavailable})`);
+if (meta.providersFailed.length) console.log(`failed: ${meta.providersFailed.map((f) => f.name).join(', ')}`);
 for (const r of results) {
   console.log(`- [${r.source}] ${r.title}\n  ${r.url}\n  ${(r.snippet ?? '').slice(0, 140)}`);
 }

@@ -10,6 +10,7 @@ import {
   filterRecency,
   toISODate,
   extractHighlights,
+  classifySourceType,
 } from '../lib/lean.js';
 import {
   normalizeUrl,
@@ -219,6 +220,23 @@ ok(tech[0].url.includes('developer.example.com/stateflow'), 'pipeline: two-engin
 ok(tech[0].snippet.length > 50 && tech[0].publishedDate === '2026-09-01', 'pipeline: longest snippet + date survive the merge');
 ok(tech[tech.length - 1].url.includes('/cats'), 'pipeline: term-less result sinks last');
 ok(tech.filter((r) => r.url.includes('developer.example.com')).length === 1, 'pipeline: tracking-param duplicate merged');
+// 13b. provenance shape (#4): counts + domain + type + retrieval date, no internals
+ok(tech[0].providerCount === 2 && tech[0].independentHostCount === 1, 'provenance: same-host two-engine hit counts providers, not hosts');
+ok(tech[0].domain === 'developer.example.com' && tech[0].sourceType === 'official-docs', 'provenance: domain + coarse source type');
+ok(JSON.stringify(tech[0].providers) === JSON.stringify(['ddg', 'bing']), 'provenance: serving backends recorded');
+ok(/^\d{4}-\d{2}-\d{2}$/.test(tech[0].retrievedAt), 'provenance: retrieval date stamped');
+ok(!('_key' in tech[0] || '_rrf' in tech[0] || '_sources' in tech[0] || '_hosts' in tech[0]), 'provenance: fusion internals not leaked');
+// 13c. source taxonomy spot-checks
+ok(classifySourceType('https://developer.android.com/x', 'web') === 'official-docs', 'taxonomy: developer.* docs');
+ok(classifySourceType('https://docs.python.org/3/', 'ddg') === 'official-docs', 'taxonomy: docs.* host');
+ok(classifySourceType('https://en.wikipedia.org/wiki/X', 'wikipedia') === 'reference', 'taxonomy: wikipedia');
+ok(classifySourceType('https://www.reddit.com/r/x/comments/1/', 'reddit') === 'community', 'taxonomy: reddit');
+ok(classifySourceType('https://stackoverflow.com/questions/1', 'stackoverflow') === 'community', 'taxonomy: stackoverflow');
+ok(classifySourceType('https://news.ycombinator.com/item?id=1', 'hn') === 'community', 'taxonomy: HN');
+ok(classifySourceType('https://news.google.com/articles/ABC', 'google') === 'aggregator', 'taxonomy: google-news redirect');
+ok(classifySourceType('https://www.reuters.com/world/x', 'web') === 'news', 'taxonomy: wire news host');
+ok(classifySourceType('https://random-blog.example.net/post', 'ddg') === 'unknown', 'taxonomy: unknown blog stays unknown');
+ok(classifySourceType('not a url', 'web') === 'unknown', 'taxonomy: unparseable stays unknown');
 const OPINION_SETTLED = [
   {
     name: 'ddg',
@@ -275,7 +293,7 @@ ok(resolveRecency('bogus', 'latest phones') === 'week', 'recency: unknown value 
 {
   // Multi-variant fusion through the injected-backend seam (offline).
   const seen = [];
-  const r = await freeSearch('stateflow lifecycle', {
+  const { results: r, meta } = await freeSearch('stateflow lifecycle', {
     maxResults: 6,
     timeoutMs: 1000,
     rerank: true,
@@ -296,6 +314,8 @@ ok(resolveRecency('bogus', 'latest phones') === 'week', 'recency: unknown value 
   ok(seen.length === 3 && seen[0] === 'stateflow lifecycle', 'fusion: primary + 2 variants all searched');
   ok(r.length === 3, 'fusion: union deduplicated to 3 unique URLs');
   ok(r[0].url.includes('shared.example.com'), 'fusion: URL found by all variants ranks first');
+  ok(meta.partial === false && meta.unavailable === false && meta.variants.length === 3, 'fusion: meta reports healthy 3-variant search');
+  ok(JSON.stringify(meta.providersSucceeded) === JSON.stringify(['fake-n3a']), 'fusion: meta names the serving backend');
 }
 
 console.log(`\nLEAN CHECK: ${pass} passed, ${fail} failed`);

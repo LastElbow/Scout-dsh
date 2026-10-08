@@ -27,11 +27,11 @@ flowchart TD
         S --> A["Arctic Shift<br/>only if r/foo named"]
     end
 
-    Fanout --> I["Fuse: RRF agreement<br/>same URL in 2 engines wins<br/>canonical key: no tracking/www/amp"]
-    I --> F["Domain + recency filters<br/>include / exclude hosts · day..year"]
-    F --> R["Heuristic rerank on top<br/>title x3 + snippet + source prior<br/>+ diversity bonus"]
+    Fanout --> I["Fuse: RRF retrieval agreement<br/>same URL twice = easier to find, NOT confirmed<br/>canonical key: no tracking/www/amp"]
+    I --> F["Domain + recency filters<br/>include / exclude hosts · auto..year"]
+    F --> R["Heuristic rerank on top<br/>title x3 + snippet, agreement bonus capped<br/>+ diversity bonus · dated-first in a window"]
     R --> T["Trim + sanitize snippets<br/>~220 chars · strip bidi/zero-width"]
-    T --> Hits["Compact hits<br/>title + URL + snippet + date + ~tokens"]
+    T --> Hits["Compact hits + provenance<br/>[SRn] title + URL + snippet + date<br/>domain · source type · providers"]
 
     Hits --> Pick{"Agent picks 1-2 URLs"}
     Pick -->|url + query| RD["scout_read<br/>freeRead() view=highlights"]
@@ -139,7 +139,7 @@ All optional (defaults work, tuned for low tokens):
 
 ## Lean workflow (cheapest first — for humans and agents)
 
-1. `scout_search` with `maxResults: 3-5` → compact hits with `~N tokens` counts and dates (`· 2026-03-06`) where known. For hard questions add `alternatives` (up to 4 reformulations, one per line) — variants fan out, one fused ranking returns. `recency` defaults to `auto` (detects current-topic hints); set it explicitly only to override.
+1. `scout_search` with `maxResults: 3-5` → compact hits with `~N tokens` counts and dates (`· 2026-03-06`) where known. Every hit carries a stable `[SRn]` id plus domain and source type (`official-docs|reference|news|community|aggregator|unknown`) — cite the id. Provider outages surface as a `Partial results:` footer (or an explicit all-failed message), never as silent thin results. For hard questions add `alternatives` (up to 4 reformulations, one per line) — variants fan out, one fused ranking returns. `recency` defaults to `auto` (detects current-topic hints); set it explicitly only to override.
 2. `scout_read { url, query, view: 'highlights' }` → extractive excerpts (~1/5 tokens). Needs both `query` + `view`.
 3. Follow-ups are free: the cleaned page is cached 10 min, so a second question costs no re-fetch. Long pages say `Continue with offset=N` — pass it back to page through.
 4. Only if the answer is missing: re-read with `view: 'text'` + `tokenBudget: 2000`.
@@ -163,7 +163,7 @@ Private/local targets are refused — SSRF guard covers IPv4 (incl. hex/octal fo
 - Keyed Bing Search APIs were retired by Microsoft (2025-08-11) — Scout's Bing RSS backend is a separate unofficial public endpoint, kept failure-isolated like every other keyless backend.
 - DuckDuckGo throttles aggressive IPs (429/202) — a circuit breaker skips a throttled backend for ~3 min instead of paying a backoff on every search; other backends cover meanwhile. Suspect queries degrade to honest-empty rather than junk (Bing results must share a query term; DDG ad links are dropped).
 - The extra reddit-biased Bing pass runs only for opinion/experience queries (or `redditBias: 'on'`) — factual queries aren't forum-biased and Bing isn't hit twice.
-- Same URL in two engines fuses by Reciprocal Rank Fusion (canonical key strips tracking params, `www.`, `http/https`, AMP variants) — but a canonical miss can still duplicate; the heuristic rerank sits on top, not instead.
+- Same URL in two engines fuses by Reciprocal Rank Fusion (canonical key strips tracking params, `www.`, `http/https`, AMP variants) — but read it as **retrieval agreement** (easy to find), not independent confirmation: same-host multi-provider hits report `providerCount` separately from `independentHostCount`, and the rerank agreement bonus is capped so it can never swamp lexical relevance. A canonical miss can still duplicate; the heuristic rerank sits on top, not instead.
 - Dates come from backends that expose them (News/Bing RSS, HN, SO, Arctic); DDG/Wikipedia/CSE don't, and undated results are kept under `recency` filters rather than dropped.
 - Reddit's own `.json` 403s without OAuth (Arctic covers threads; very fresh posts take a while to index).
 - No JS rendering — heavy SPA pages return their static HTML text. No PDFs.
