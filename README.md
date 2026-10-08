@@ -173,8 +173,15 @@ Private/local targets are refused — SSRF guard covers IPv4 (incl. hex/octal fo
 ## Test
 
 ```powershell
-# Offline (no network — pure helpers, parsers, SSRF guard):
+# Offline (no network): pure helpers/parsers, reader fixtures, SSRF hard
+# gate, provider chaos, frozen ranking bench (L1-L5 gates — see #8):
+npm test
+# or per suite:
 node ./test/lean-check.mjs
+node ./test/reader-check.mjs
+node ./test/ssrf-check.mjs
+node ./test/chaos-check.mjs
+node ./test/ranking-bench.mjs
 # Live backends + plugin mount:
 node ./test/smoke.mjs "best android pomodoro apps reddit"
 node ./test/check-plugin.mjs

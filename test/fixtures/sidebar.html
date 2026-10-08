@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head><title>StateFlow collection patterns</title></head>
+<body>
+<nav>Docs API Guides Community Blog Login Sign up</nav>
+<main>
+<h1>StateFlow collection patterns</h1>
+<p>The recommended way to collect a StateFlow in UI code is repeatOnLifecycle with the STARTED state. This restarts collection when the lifecycle moves and cancels when it stops, which avoids wasting resources while the UI is in the background.</p>
+<p>An older alternative is launchWhenStarted, which suspends but does not cancel the collector. Prefer repeatOnLifecycle for new code because it releases upstream resources deterministically and composes well with sharing operators like stateIn.</p>
+<p>For one-shot events, SharedFlow with replay zero plus a lifecycle-aware collector remains the standard answer. Remember that StateFlow always replays its latest value to new collectors, so treat it as state, not events. These three paragraphs together exceed four hundred characters so the article branch is preferred over the whole body.</p>
+</main>
+<aside>
+<h3>Subscribe to our newsletter</h3>
+<p>Get weekly Kotlin tips in your inbox. No spam, unsubscribe anytime.</aside>
+</aside>
+<footer>Footer links: about contact privacy</footer>
+</body>
+</html>

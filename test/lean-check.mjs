@@ -11,7 +11,17 @@ import {
   toISODate,
   extractHighlights,
 } from '../lib/lean.js';
-import { normalizeUrl, isOpinionQuery } from '../lib/search.js';
+import {
+  normalizeUrl,
+  isOpinionQuery,
+  parseDDG,
+  parseBingRSS,
+  parseGoogleNewsRSS,
+  recallGoogleNews,
+  matchesQuery,
+  significantTerms,
+  rankPipeline,
+} from '../lib/search.js';
 import { assertPublicUrl, pageCacheKey } from '../lib/reader.js';
 
 let pass = 0;
@@ -108,6 +118,122 @@ ok(isOpinionQuery('capital of france') === false, 'factual is not opinion');
 // 8. highlights fallback (tables/lists/numbers: thin term hits → lead section)
 const { excerpts } = extractHighlights('| a | b |\n| 1 | 2 |\nSome intro sentence here about timers.', 'quantum chromodynamics');
 ok(excerpts.length > 0 && excerpts[0].length > 0, 'thin hits fall back to lead');
+
+// 9. parseDDG: normal / redirect-unwrap / ad-drop / zero / malformed
+const DDG_HTML = `<html><body>
+<div class="result"><a class="result__a" href="https://example.com/guide">Example Guide &amp; Tips</a><a class="result__snippet" href="https://example.com/guide">A useful guide snippet here.</a></div>
+<div class="result"><a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Freal&amp;rut=abc">Wrapped Result</a><a class="result__snippet" href="https://example.com/real">Redirect-wrapped link.</a></div>
+<div class="result"><a class="result__a" href="https://duckduckgo.com/y.js?ad=1">Sponsored junk</a><a class="result__snippet" href="https://ads.example/">Buy now.</a></div>
+<div class="result"><a class="result__a" href="https://nosnip.example/">No Snippet Page</a></div>
+</body></html>`;
+const ddg = parseDDG(DDG_HTML);
+ok(ddg.length === 3, 'DDG parses 3 results (ad click-link dropped)');
+ok(ddg[0].url === 'https://example.com/guide' && ddg[0].title === 'Example Guide & Tips', 'DDG title entities decoded');
+ok(ddg[0].snippet === 'A useful guide snippet here.', 'DDG snippet captured');
+ok(ddg[1].url === 'https://example.com/real', 'DDG //l/?uddg= redirect unwrapped');
+ok(ddg[2].url === 'https://nosnip.example/' && ddg[2].snippet === '', 'missing snippet → empty string, not crash');
+ok(parseDDG('<html><body>no results here</body></html>').length === 0, 'DDG zero results → []');
+ok(parseDDG('<<<not html>>>').length === 0, 'DDG malformed HTML → []');
+ok(parseDDG('<a class="result__a" href="https://uni.example/caf%C3%A9">Caf&#233; &#x2615;</a>').length === 1, 'DDG unicode/numeric entities survive');
+
+// 10. parseBingRSS: normal / skip non-http / malformed / bad date
+const BING_XML = `<rss><channel>
+<item><title>Example A</title><link>https://example.com/a</link><description>Desc A</description><pubDate>Mon, 06 Oct 2026 12:00:00 GMT</pubDate></item>
+<item><title>FTP junk</title><link>ftp://example.com/f</link><description>x</description></item>
+<item><title>No date</title><link>https://example.com/b</link><description>Desc B</description><pubDate>garbage</pubDate></item>
+</channel></rss>`;
+const bing = parseBingRSS(BING_XML, 'web');
+ok(bing.length === 2, 'Bing RSS drops non-http link');
+ok(bing[0].publishedDate === '2026-10-06', 'Bing pubDate → ISO date');
+ok(bing[1].publishedDate === null, 'Bing garbage date → null (kept, not dropped)');
+ok(parseBingRSS('<rss><channel></channel></rss>', 'web').length === 0, 'Bing zero items → []');
+ok(parseBingRSS('this is not xml', 'web').length === 0, 'Bing malformed XML → []');
+
+// 11. parseGoogleNewsRSS: headline split + publisher memory round-trip
+const NEWS_XML = `<rss><channel><item>
+<title>City opens new metro line - ExampleNews</title>
+<link>https://news.google.com/articles/CBMiXmh0dHBzOi8vZXhhbXBsZS5jb20vbWV0cm8</link>
+<pubDate>Tue, 07 Oct 2026 08:00:00 GMT</pubDate>
+<source url="https://example.com">ExampleNews</source>
+</item></channel></rss>`;
+const news = parseGoogleNewsRSS(NEWS_XML, 'City opens new metro line');
+ok(news.length === 1, 'News RSS parses gated item');
+ok(news[0].publishedDate === '2026-10-07', 'News pubDate → ISO date');
+ok(news[0].snippet.includes('ExampleNews'), 'News snippet names publisher');
+const remembered = recallGoogleNews(news[0].url);
+ok(remembered?.headline === 'City opens new metro line' && remembered?.publisher === 'ExampleNews', 'headline split + publisher remembered for reader bridge');
+ok(parseGoogleNewsRSS(NEWS_XML, 'quantum chromodynamics').length === 0, 'News relevance gate drops off-topic item');
+
+// 12. canonicalization matrix: 20 variants collapse, near-misses stay distinct
+const canonBase = normalizeUrl('https://example.com/a?x=1');
+const mustMerge = [
+  'https://example.com/a?x=1',
+  'http://example.com/a?x=1',
+  'https://www.example.com/a?x=1',
+  'https://example.com/a/?x=1',
+  'https://EXAMPLE.COM/a?x=1',
+  'https://example.com/a?x=1#section',
+  'https://example.com/a?x=1&utm_source=news&utm_medium=social',
+  'https://example.com/a?x=1&fbclid=abc&gclid=123&msclkid=zzz&si=q',
+  'https://example.com/a?x=1&utm_source=n&ref=r',
+  'https://example.com/amp/../a?x=1',
+  'https://example.com/a/amp?x=1',
+  'https://example.com/a?x=1&amp=1',
+  'https://example.com/a?x=1&output=1',
+];
+ok(mustMerge.every((u) => normalizeUrl(u) === canonBase), '13 URL variants (scheme/www/case/slash/hash/tracking/amp) merge');
+const mustSplit = [
+  ['https://example.com/a?x=1', 'https://example.com/a?x=2'],
+  ['https://example.com/a', 'https://example.com/b'],
+  ['https://example.com/a', 'https://blog.example.com/a'],
+  ['https://example.com/a', 'https://example.com:8080/a'],
+  ['https://example.com/a?page=2', 'https://example.com/a?page=3'],
+];
+ok(mustSplit.every(([a, b]) => normalizeUrl(a) !== normalizeUrl(b)), '5 near-misses (query/path/subdomain/port/pagination) stay distinct');
+
+// 13. rankPipeline fixtures: agreement wins, unrelated sinks
+const TECH_SETTLED = [
+  {
+    name: 'ddg',
+    items: [
+      { url: 'https://developer.example.com/stateflow', title: 'StateFlow lifecycle collection guide', snippet: 'Collect StateFlow with repeatOnLifecycle.', source: 'web' },
+      { url: 'https://seo.example.net/top-10', title: 'TOP 10 BEST StateFlow tricks 2026!!!', snippet: 'Number 7 will shock you.', source: 'web' },
+      { url: 'https://unrelated.example.org/cats', title: 'Cats', snippet: 'All about cats.', source: 'web' },
+    ],
+  },
+  {
+    name: 'stackoverflow',
+    items: [{ url: 'https://stackoverflow.com/questions/123', title: 'How to collect StateFlow with lifecycle?', snippet: 'Use repeatOnLifecycle in your UI layer.', source: 'stackoverflow' }],
+  },
+  {
+    name: 'bing',
+    items: [{ url: 'https://developer.example.com/stateflow?utm_source=x', title: 'StateFlow lifecycle collection guide', snippet: 'A longer duplicate snippet that should win the merge and carry the date.', source: 'web', publishedDate: '2026-09-01' }],
+  },
+];
+const tech = rankPipeline(TECH_SETTLED, 'Kotlin StateFlow lifecycle collection', { maxResults: 8 });
+ok(tech[0].url.includes('developer.example.com/stateflow'), 'pipeline: two-engine agreement ranks first');
+ok(tech[0].snippet.length > 50 && tech[0].publishedDate === '2026-09-01', 'pipeline: longest snippet + date survive the merge');
+ok(tech[tech.length - 1].url.includes('/cats'), 'pipeline: term-less result sinks last');
+ok(tech.filter((r) => r.url.includes('developer.example.com')).length === 1, 'pipeline: tracking-param duplicate merged');
+const OPINION_SETTLED = [
+  {
+    name: 'ddg',
+    items: [
+      { url: 'https://seo.example.net/best-10', title: 'TOP 10 BEST pomodoro apps 2026', snippet: 'Buy our course.', source: 'web' },
+      { url: 'https://www.reddit.com/r/android/comments/abc', title: 'What pomodoro app actually works for ADHD? (android)', snippet: 'I tried five android pomodoro timers, here is what stuck.', source: 'reddit' },
+    ],
+  },
+];
+const opinion = rankPipeline(OPINION_SETTLED, 'best android pomodoro apps', { maxResults: 5 });
+ok(opinion[0].url.includes('reddit.com'), 'pipeline: opinion query ranks lived-experience Reddit above SEO list');
+const raw = rankPipeline(TECH_SETTLED, 'Kotlin StateFlow lifecycle collection', { maxResults: 8, rerank: false });
+ok(Array.isArray(raw) && raw.length > 0, 'pipeline: rerank:false interleave still returns results');
+
+// 14. query-term helpers: site/strip, caps, stopwords
+ok(JSON.stringify(significantTerms('site:reddit.com best android pomodoro r/focus')) === JSON.stringify(['android', 'pomodoro']), 'significantTerms strips site:/r/ tokens + stopwords');
+ok(significantTerms('a b c d e f g h i j k l m n').length <= 8, 'significantTerms capped at 8');
+ok(matchesQuery({ title: 'Android timers', snippet: '', url: 'https://x.example/' }, 'android pomodoro') === true, 'matchesQuery: one shared term suffices');
+ok(matchesQuery({ title: 'BEST Definition & Meaning', snippet: 'dictionary', url: 'https://d.example/' }, 'best android pomodoro apps') === false, 'matchesQuery: dictionary junk rejected');
 
 console.log(`\nLEAN CHECK: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

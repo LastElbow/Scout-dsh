@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><title>Retry helper in Kotlin</title></head>
+<body>
+<main>
+<h1>Retry helper in Kotlin</h1>
+<p>Use exponential backoff around flaky network calls. The helper below retries up to three times.</p>
+<pre>suspend fun &lt;T&gt; retryIO(times: Int = 3, block: suspend () -&gt; T): T {
+    repeat(times - 1) {
+        try { return block() } catch (e: IOException) { delay(500) }
+    }
+    return block()
+}</pre>
+<p>Call it from a coroutine scope tied to the request lifecycle.</p>
+</main>
+</body>
+</html>

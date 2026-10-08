@@ -5,6 +5,9 @@
   "description": "Scout — lean token-efficient free web search + reader for any AI agent. RRF fusion, highlights excerpts, token budgets, page cache, SSRF-hardened. No API key needed.",
   "type": "module",
   "main": "index.js",
+  "scripts": {
+    "test": "node ./test/lean-check.mjs && node ./test/reader-check.mjs && node ./test/ssrf-check.mjs && node ./test/chaos-check.mjs && node ./test/ranking-bench.mjs"
+  },
   "exports": {
     ".": "./index.js",
     "./package.json": "./package.json"
