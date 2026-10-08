@@ -1,6 +1,6 @@
 ---
 name: scout-dsh
-description: Scout — lean token-efficient free web search + reader for any AI agent. RRF fusion, highlights excerpts, token budgets, paging. No key needed.
+description: Scout — lean token-efficient free web search + reader for any AI agent. Free-first provider ladder (keyless DDG/Bing-RSS/Google-News + specials; optional Brave key, legacy CSE only). RRF fusion, highlights excerpts, token budgets, paging. No key needed.
 ---
 
 # Scout skill — lean web for agents

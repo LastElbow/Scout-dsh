@@ -6,7 +6,7 @@
  * Registers:
  *   - web search provider  `scout`  → ctx.web.search() works without keys
  *   - web fetch provider   `scout`  → ctx.web.fetch() reads reddit/forums
- *   - tool `scout_search` — lean Google-first search (reranked, snippet-trimmed,
+ *   - tool `scout_search` — lean free-first search (reranked, snippet-trimmed,
  *     domain filters; flat primitives so any agent/MCP client can call it)
  *   - tool `scout_read`   — lean reader with view=text|highlights, tokenBudget,
  *     query-focused excerpts; highlights-first, never both views at once
@@ -41,13 +41,15 @@ const DEFAULTS = Object.freeze({
   excludeDomains: '',
   withLinksSummary: false,
   jinaFallback: true,
-  // Optional full-Google tier: Google's own free Custom Search key
-  // (100 queries/day, $0) + the search-engine ID. Read at request time so
-  // exporting the vars needs no restart. Empty = keyless News RSS tier.
+  // Optional Google CSE tier — LEGACY ONLY: Google closed the CSE JSON API
+  // to new customers and discontinues it 2027-01-01. Kept for pre-existing
+  // keys (100 queries/day free); new setups should use Brave. Read at request
+  // time so exporting the vars needs no restart. Empty = News RSS tier.
   googleApiKeyEnv: 'GOOGLE_API_KEY',
   googleCx: '',
-  // Optional keyed provider: Brave Search API slots in first when set.
-  // Read at request time; empty = keyless backends only.
+  // Optional keyed provider: Brave Search API is the recommended keyed
+  // primary and slots in first when set. Read at request time;
+  // empty = keyless backends only.
   braveApiKeyEnv: 'BRAVE_API_KEY',
 });
 
@@ -446,9 +448,10 @@ function msg(e) {
 }
 
 /**
- * Resolve the Google tier at request time (env read per call, so exporting
- * the key needs no restart). Returns { key, cx } — empty key means the
- * keyless News RSS tier.
+ * Resolve the legacy Google tier at request time (env read per call, so
+ * exporting the key needs no restart). Returns { key, cx } — empty key
+ * means the keyless News RSS tier. CSE is closed to new customers and
+ * discontinued 2027-01-01; kept for pre-existing keys only.
  */
 function resolveGoogleOpts(opts) {
   let key = '';

@@ -1,14 +1,15 @@
 # Scout bundle patch
 #
 # Inserts this package as a profile layer. index.js registers:
-#   - web search provider  `scout`  (Google-first; keyless by default)
+#   - web search provider  `scout`  (free-first ladder; keyless by default)
 #   - web fetch provider   `scout`  (Reddit/SO/HN/Discourse-aware reader)
 #   - tools `scout_search` + `scout_read`
 #
 # No credentials needed. Tune behaviour via the row config below.
-# Full Google tier (optional): set googleCx to your search-engine ID and
-# export GOOGLE_API_KEY (Google's free tier: 100 queries/day, $0).
-# Keyed Brave tier (optional): export BRAVE_API_KEY — slots in first.
+# Recommended keyed primary (optional): export BRAVE_API_KEY — slots in first.
+# Legacy Google CSE (optional, pre-existing keys only — closed to new
+# customers, discontinued 2027-01-01): set googleCx + export GOOGLE_API_KEY.
+# Keys are read at request time, so exporting them needs no restart.
 # Keys are read at request time, so exporting them needs no restart.
 # Privacy: jinaFallback sends blocked-page URLs to the public reader proxy
 # (r.jina.ai). Set false for sensitive deployments.

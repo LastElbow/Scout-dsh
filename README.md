@@ -1,12 +1,12 @@
 # Scout — lean web search + reader for any AI agent
 
-Google-first free web search + universal page reader. Token-efficient by design: highlights-first excerpts, reranked snippets, token budgets. Flat string/integer/boolean params so DSH, MCP, or OpenAI-style function calling can all use it. No API key needed.
+Free-first, provider-agnostic web search + universal page reader. Token-efficient by design: highlights-first excerpts, reranked snippets, token budgets. Flat string/integer/boolean params so DSH, MCP, or OpenAI-style function calling can all use it. No API key needed.
 
 ## What you get
 
 | Tool | What it does |
 |---|---|
-| `scout_search` | **Google first** (full Search API with free key, else Google News RSS) + DuckDuckGo HTML + Bing RSS (+ reddit-biased pass) + Wikipedia + HackerNews + StackExchange, plus **Arctic Shift** when you name a subreddit (`r/foo`). Handles `site:` queries. |
+| `scout_search` | **Free-first, provider-agnostic**: optional keyed backends (**Brave** first when a key is set; **Google CSE legacy-only**, see below) + keyless free backends (DuckDuckGo HTML, **Bing RSS** — unofficial endpoint — Google News RSS, extra reddit-biased pass) + specials (Wikipedia, HackerNews, StackExchange, plus **Arctic Shift** when you name a subreddit (`r/foo`)). Handles `site:` queries. |
 | `scout_read` | Reads a URL as clean text. **Reddit threads** (post + top comments via Arctic Shift), **subreddit digests**, **StackOverflow** (question + top answers via API), **HN threads** (via Firebase API), **Discourse** (`…json`), generic articles, plus a public-reader fallback for 403/429 pages. |
 | `web` providers `scout` | Also plugs into the built-in `web_search` / `web_fetch` tools, so they work with no key configured. |
 
@@ -19,9 +19,10 @@ flowchart TD
     Agent(["Any AI agent"]) -->|query, maxResults 3-5| S["scout_search<br/>freeSearch()"]
 
     subgraph Fanout ["Parallel fan-out — one failure never blanks the search"]
-        S --> G["Google<br/>CSE key if set,<br/>else News RSS"]
+        S --> K["Keyed (optional)<br/>Brave first;<br/>Google CSE legacy-only"]
+        S --> N["Google News RSS<br/>keyless, always on"]
         S --> D["DuckDuckGo HTML<br/>back off once on 429"]
-        S --> B["Bing RSS x2<br/>normal + reddit-biased"]
+        S --> B["Bing RSS x2 (unofficial)<br/>normal + reddit-biased"]
         S --> W["Wikipedia / HN / SO APIs"]
         S --> A["Arctic Shift<br/>only if r/foo named"]
     end
@@ -76,26 +77,33 @@ npm install ./Scout-dsh
 
 Then restart `dsh web` (or reload the profile). Tools `scout_search` / `scout_read` appear, and `web_search` keeps working even with no `ANYSEARCH_API_KEY`.
 
-## Google: two tiers (primary engine)
+## Providers: free-first ladder (Google CSE is legacy)
 
-`scout_search` always hits Google first, in this order:
+Scout is provider-agnostic. The serving order per search:
 
-1. **Full Google Search (needs the free key)** — set `googleCx` to your
-   Programmable Search Engine ID and export `GOOGLE_API_KEY`. Getting both
-   is free: [Google Cloud Console](https://console.cloud.google.com/apis/credentials) →
-   create an API key (restrict it to Custom Search API) → 100 queries/day at
-   $0. Get the CX at [programmablesearchengine.google.com](https://programmablesearchengine.google.com/)
-   (create an engine, enable "search the entire web"). The key is read per
-   request, so exporting it needs no restart. A local daily counter stops at
-   ~95 queries so config churn can't burn the quota; News RSS covers the rest.
-2. **Google News RSS (keyless, always on)** — real Google coverage with no
-   signup. Best for news/current queries.
+1. **Optional keyed backends** (skipped when no keys are set)
+   - **Brave Search API** — the recommended keyed primary. Export `BRAVE_API_KEY`
+     (~$5/mo free credits, then ~$5/1k requests). Slots in **first**, ahead of
+     all keyless backends; if it ever fails, the keyless backends still cover.
+   - **Google Custom Search (CSE) — legacy only.** Google closed the CSE JSON API
+     to new customers, and existing customers must migrate off it by
+     **January 1, 2027**. Kept working for keys issued earlier (set `googleCx`
+     + export `GOOGLE_API_KEY`); do not build new setups around it.
+2. **Free/keyless backends (always on)** — DuckDuckGo HTML (general web, handles
+   `site:` natively), Google News RSS (real Google coverage for news/current,
+   no signup), Bing RSS (general web + the reddit-biased pass — note this is an
+   **unofficial public endpoint**, not the retired keyed Bing Search API, and can
+   change or be blocked without notice).
+3. **Specialized free sources** — Wikipedia OpenSearch, HN Algolia, StackExchange
+   API, Arctic Shift (Reddit full-text, only when a subreddit is named).
+4. **Optional self-hosted metasearch** — SearXNG via `SEARXNG_URL` (planned, see
+   #7; not implemented yet).
 
 Why not scrape google.com? Its HTML is a JS shell — results render
-client-side, so plain-HTTP scraping returns zero links. News RSS + the free
-CSE tier are the honest free options, and both are wired in.
+client-side, so plain-HTTP scraping returns zero links. News RSS is the honest
+keyless Google backend; Brave is the honest keyed one.
 
-## Keyed provider slot-in (optional): Brave
+## Keyed providers (optional): Brave primary, Google CSE legacy
 
 Keyless HTML/RSS endpoints are undocumented and can change or be blocked
 without notice. If that happens — or you just want better relevance — export
@@ -104,6 +112,10 @@ Search API then slots in **first**, ahead of all keyless backends; if it ever
 fails, the keyless backends still cover. Same pattern fits any future keyed
 provider (Serper, etc.): one `searchX()` function + one entry in the backend
 list, failure-isolated by the same circuit breaker.
+
+A local daily counter also guards the legacy Google CSE quota (~95/day) for
+setups that still carry an old key; News RSS covers the rest. New setups
+should use Brave, not CSE.
 
 ## Config
 
@@ -120,8 +132,8 @@ All optional (defaults work, tuned for low tokens):
 - `maxChars` (default 8000, 500–50000) — full-text cap (~2000 tokens)
 - `withLinksSummary` (default false) — append `## Links` URL list (off saves tokens)
 - `jinaFallback` (default true) — use the public text proxy (`r.jina.ai`) when a page blocks direct fetch. **Privacy:** the requested URL is sent to that third party — set `false` for sensitive deployments and use another result instead.
-- `googleApiKeyEnv` (default `'GOOGLE_API_KEY'`) — env var holding the free CSE key
-- `googleCx` (default `''`) — Programmable Search Engine ID (empty = News RSS tier)
+- `googleApiKeyEnv` (default `'GOOGLE_API_KEY'`) — env var holding a pre-existing CSE key (legacy only — closed to new customers, discontinued 2027-01-01)
+- `googleCx` (default `''`) — Programmable Search Engine ID (empty = News RSS tier; new setups should not use this)
 - `braveApiKeyEnv` (default `'BRAVE_API_KEY'`) — env var holding the Brave key (empty = keyless backends only)
 
 ## Lean workflow (cheapest first — for humans and agents)
@@ -146,7 +158,8 @@ Private/local targets are refused — SSRF guard covers IPv4 (incl. hex/octal fo
 
 ## Limits (honest)
 
-- Keyless Google = News RSS (fresh/current queries shine; obscure `site:` scoping is weaker — add the free CSE key for full Google).
+- Keyless Google = News RSS (fresh/current queries shine; obscure `site:` scoping is weaker — Brave covers full-web relevance; the legacy CSE key path works only for pre-existing keys until 2027-01-01).
+- Keyed Bing Search APIs were retired by Microsoft (2025-08-11) — Scout's Bing RSS backend is a separate unofficial public endpoint, kept failure-isolated like every other keyless backend.
 - DuckDuckGo throttles aggressive IPs (429/202) — a circuit breaker skips a throttled backend for ~3 min instead of paying a backoff on every search; other backends cover meanwhile. Suspect queries degrade to honest-empty rather than junk (Bing results must share a query term; DDG ad links are dropped).
 - The extra reddit-biased Bing pass runs only for opinion/experience queries (or `redditBias: 'on'`) — factual queries aren't forum-biased and Bing isn't hit twice.
 - Same URL in two engines fuses by Reciprocal Rank Fusion (canonical key strips tracking params, `www.`, `http/https`, AMP variants) — but a canonical miss can still duplicate; the heuristic rerank sits on top, not instead.
