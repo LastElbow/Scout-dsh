@@ -124,7 +124,8 @@ All optional (defaults work, tuned for low tokens):
 - `maxResults` (default 8) — search result cap 1–20 (use 3–5 to save tokens)
 - `snippetChars` (default 220, 80–500) — per-snippet cap; smaller = fewer tokens
 - `rerank` (default true) — RRF fusion + heuristic rerank with per-source diversity guard
-- `recency` (default `'all'`) — `day|week|month|year|all`; undated results are kept (absence of a date ≠ stale)
+- `alternatives` (default `''`) — up to 4 alternate queries, newline-separated; every variant searches, one fused/deduped/reranked list returns (a 5th errors)
+- `recency` (default `'auto'`) — `auto|day|week|month|year|all`; auto detects latest/today/version/price/year hints. With any window (explicit or auto-resolved), confirmed-fresh results outrank `date: unknown`; undated results are always kept, never dropped
 - `redditBias` (default `'auto'`) — extra reddit pass for opinion/experience queries; `on`/`off` to force
 - `includeDomains` / `excludeDomains` (default `''`) — comma-separated hosts (`"github.com, *.substack.com"`)
 - `searchTimeoutMs` (default 12000)
@@ -138,7 +139,7 @@ All optional (defaults work, tuned for low tokens):
 
 ## Lean workflow (cheapest first — for humans and agents)
 
-1. `scout_search` with `maxResults: 3-5` → compact hits with `~N tokens` counts and dates (`· 2026-03-06`) where known. Add `recency: 'week'` for current topics.
+1. `scout_search` with `maxResults: 3-5` → compact hits with `~N tokens` counts and dates (`· 2026-03-06`) where known. For hard questions add `alternatives` (up to 4 reformulations, one per line) — variants fan out, one fused ranking returns. `recency` defaults to `auto` (detects current-topic hints); set it explicitly only to override.
 2. `scout_read { url, query, view: 'highlights' }` → extractive excerpts (~1/5 tokens). Needs both `query` + `view`.
 3. Follow-ups are free: the cleaned page is cached 10 min, so a second question costs no re-fetch. Long pages say `Continue with offset=N` — pass it back to page through.
 4. Only if the answer is missing: re-read with `view: 'text'` + `tokenBudget: 2000`.

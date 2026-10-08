@@ -21,7 +21,7 @@
         maxResults: 8
         snippetChars: 220
         rerank: true
-        recency: 'all'
+        recency: 'auto'
         redditBias: 'auto'
         includeDomains: ''
         excludeDomains: ''

@@ -21,6 +21,10 @@ import {
   matchesQuery,
   significantTerms,
   rankPipeline,
+  parseAlternatives,
+  resolveRecency,
+  partitionDatedFirst,
+  freeSearch,
 } from '../lib/search.js';
 import { assertPublicUrl, pageCacheKey } from '../lib/reader.js';
 
@@ -234,6 +238,65 @@ ok(JSON.stringify(significantTerms('site:reddit.com best android pomodoro r/focu
 ok(significantTerms('a b c d e f g h i j k l m n').length <= 8, 'significantTerms capped at 8');
 ok(matchesQuery({ title: 'Android timers', snippet: '', url: 'https://x.example/' }, 'android pomodoro') === true, 'matchesQuery: one shared term suffices');
 ok(matchesQuery({ title: 'BEST Definition & Meaning', snippet: 'dictionary', url: 'https://d.example/' }, 'best android pomodoro apps') === false, 'matchesQuery: dictionary junk rejected');
+
+// 15. #3: alternatives parsing, recency:auto, dated-first, multi-variant fusion
+ok(JSON.stringify(parseAlternatives('b\nc', 'a')) === JSON.stringify(['b', 'c']), 'alternatives: newline split');
+ok(JSON.stringify(parseAlternatives('  b  \n\nc\r\n', 'a')) === JSON.stringify(['b', 'c']), 'alternatives: trims, drops blanks, handles CRLF');
+ok(JSON.stringify(parseAlternatives('Q\nq \nQ\nx', 'Q')) === JSON.stringify(['x']), 'alternatives: primary + case-dupes dropped');
+ok(JSON.stringify(parseAlternatives('q\n1\n2\n3\n4', 'q')).length > 0, 'alternatives: 4 distinct pass');
+throws(() => parseAlternatives('1\n2\n3\n4\n5', 'q'), 'alternatives: 5th distinct variant throws');
+ok(resolveRecency('auto', 'latest Android Studio version 2026') === 'week', 'recency:auto latest → week (before year)');
+ok(resolveRecency('auto', 'today bitcoin price') === 'day', 'recency:auto today → day');
+ok(resolveRecency('auto', 'Android 16 release date') === 'month', 'recency:auto release → month');
+ok(resolveRecency('auto', 'bitcoin price') === 'month', 'recency:auto price → month');
+ok(resolveRecency('auto', 'capital of France') === 'all', 'recency:auto factual → all');
+ok(resolveRecency('auto', 'photos from 2019') === 'year', 'recency:auto year → year');
+ok(resolveRecency('week', 'capital of France') === 'week', 'recency: explicit window respected');
+ok(resolveRecency('bogus', 'latest phones') === 'week', 'recency: unknown value falls back to detection, never throws');
+{
+  const mixed = [{ url: 'https://u1/', title: 'U1' }, { url: 'https://d1/', title: 'D1', publishedDate: '2026-10-01' }, { url: 'https://u2/', title: 'U2', publishedDate: 'junk' }, { url: 'https://d2/', title: 'D2', publishedDate: '2026-10-02' }];
+  const part = partitionDatedFirst(mixed);
+  ok(part.map((r) => r.url).join(',') === 'https://d1/,https://d2/,https://u1/,https://u2/', 'dated-first: stable partition, garbage date counts as unknown');
+}
+{
+  const today = new Date().toISOString().slice(0, 10);
+  const settled = [{
+    name: 'ddg',
+    items: [
+      { url: 'https://strong.example.com/guide', title: 'Kotlin StateFlow lifecycle collection complete guide', snippet: 'everything about StateFlow lifecycle collection', source: 'web' },
+      { url: 'https://fresh.example.com/notes', title: 'StateFlow notes', snippet: 'short notes', source: 'web', publishedDate: today },
+    ],
+  }];
+  const lex = rankPipeline(settled, 'Kotlin StateFlow lifecycle collection', { maxResults: 5, recency: 'all' });
+  const win = rankPipeline(settled, 'Kotlin StateFlow lifecycle collection', { maxResults: 5, recency: 'week' });
+  ok(lex[0].url.includes('strong.example.com'), 'recency:all keeps lexical order (strong undated first)');
+  ok(win[0].url.includes('fresh.example.com'), 'recency:week lifts confirmed-fresh above date-unknown');
+}
+{
+  // Multi-variant fusion through the injected-backend seam (offline).
+  const seen = [];
+  const r = await freeSearch('stateflow lifecycle', {
+    maxResults: 6,
+    timeoutMs: 1000,
+    rerank: true,
+    recency: 'all',
+    alternatives: 'StateFlow repeatOnLifecycle\nkotlin flow collect',
+    backends: (v) => {
+      seen.push(v);
+      const item = (url, title, snippet) => ({ url, title, snippet, source: 'ddg' });
+      if (/repeatOnLifecycle/i.test(v)) {
+        return [{ name: 'fake-n3a', run: async () => [item('https://shared.example.com/s', 'StateFlow lifecycle collection', 'repeatOnLifecycle guide'), item('https://unique-a.example.com/', 'repeatOnLifecycle reference', 'API reference for repeatOnLifecycle')] }];
+      }
+      if (/kotlin flow/i.test(v)) {
+        return [{ name: 'fake-n3a', run: async () => [item('https://shared.example.com/s', 'StateFlow lifecycle collection', 'kotlin flow collection guide'), item('https://unique-b.example.com/', 'Kotlin flow collection patterns', 'flow collection patterns')] }];
+      }
+      return [{ name: 'fake-n3a', run: async () => [item('https://shared.example.com/s', 'StateFlow lifecycle collection', 'primary query hit')] }];
+    },
+  });
+  ok(seen.length === 3 && seen[0] === 'stateflow lifecycle', 'fusion: primary + 2 variants all searched');
+  ok(r.length === 3, 'fusion: union deduplicated to 3 unique URLs');
+  ok(r[0].url.includes('shared.example.com'), 'fusion: URL found by all variants ranks first');
+}
 
 console.log(`\nLEAN CHECK: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

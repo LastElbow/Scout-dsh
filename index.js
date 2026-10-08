@@ -19,7 +19,7 @@
  *     this file without the host present). defineTool/schemastery load lazily.
  */
 
-import { freeSearch, normalizeUrl } from './lib/search.js';
+import { freeSearch, normalizeUrl, resolveRecency } from './lib/search.js';
 import { freeRead } from './lib/reader.js';
 import { estimateTokens, sanitizeUntrusted, wrapUntrusted } from './lib/lean.js';
 
@@ -35,7 +35,7 @@ const DEFAULTS = Object.freeze({
   maxChars: 8000,
   snippetChars: 220,
   rerank: true,
-  recency: 'all',
+  recency: 'auto',
   redditBias: 'auto',
   includeDomains: '',
   excludeDomains: '',
@@ -198,12 +198,13 @@ function registerTools(ctx, opts, defineTool, status = null) {
 
   const searchParams = {
     query: { type: 'string', required: true, description: 'Search query. Supports site: filters (e.g. site:reddit.com android pomodoro).' },
+    alternatives: { type: 'string', description: 'Optional alternate queries, one per line (max 4). Scout fans out every variant, then fuses + dedupes + reranks once — one-call query expansion.' },
     maxResults: { type: 'integer', description: 'Result count 1-20 (default 8; use 3-5 to save tokens).' },
     snippetChars: { type: 'integer', description: 'Snippet length 80-500 chars (default 220; smaller = fewer tokens).' },
     includeDomains: { type: 'string', description: 'Comma-separated hosts to keep (e.g. "github.com, stackoverflow.com"). Empty = all.' },
     excludeDomains: { type: 'string', description: 'Comma-separated hosts to drop (e.g. "pinterest.com"). Empty = none.' },
     rerank: { type: 'boolean', description: 'Fuse + rerank across engines (default true; false = raw backend order).' },
-    recency: { type: 'string', description: 'day, week, month, year, or all (default all). Undated results are kept.' },
+    recency: { type: 'string', description: "auto (default: detects latest/today/version/2026 hints), day, week, month, year, or all. Confirmed-fresh outranks date-unknown when a window applies." },
     redditBias: { type: 'string', description: 'auto (default: extra reddit pass for opinion queries), on, or off.' },
   };
   const readParams = {
@@ -246,9 +247,9 @@ function registerTools(ctx, opts, defineTool, status = null) {
         }
         const maxResults = clampInt(args?.maxResults ?? opts.maxResults, 1, 20);
         const snippetChars = clampInt(args?.snippetChars ?? opts.snippetChars, 80, 500);
-        const recency = String(args?.recency ?? opts.recency ?? 'all').trim().toLowerCase();
-        if (!['all', 'day', 'week', 'month', 'year'].includes(recency)) {
-          throw new Error("recency must be one of: all, day, week, month, year (undated results are kept)");
+        const recency = String(args?.recency ?? opts.recency ?? 'auto').trim().toLowerCase();
+        if (!['all', 'auto', 'day', 'week', 'month', 'year'].includes(recency)) {
+          throw new Error("recency must be one of: auto, all, day, week, month, year (undated results are kept)");
         }
         const redditBias = String(args?.redditBias ?? opts.redditBias ?? 'auto').trim().toLowerCase();
         if (!['auto', 'on', 'off'].includes(redditBias)) {
@@ -266,8 +267,9 @@ function registerTools(ctx, opts, defineTool, status = null) {
           recency,
           redditBias,
           snippetChars,
+          alternatives: args?.alternatives ?? '',
         });
-        return { text: formatSearch(query, results) };
+        return { text: formatSearch(query, results, resolveRecency(recency, query)) };
       },
     },
     {
@@ -396,9 +398,10 @@ function compileValueSchema(node, path, inProperty = false) {
   return out;
 }
 
-function formatSearch(query, results) {
+function formatSearch(query, results, recencyWindow) {
   if (!results.length) return `No results for "${query}" (all free backends empty or blocked — try rephrasing).`;
-  const lines = [`Found ${results.length} result(s) for "${query}":`, ''];
+  const windowNote = recencyWindow && recencyWindow !== 'all' ? ` (recency: ${recencyWindow})` : '';
+  const lines = [`Found ${results.length} result(s) for "${query}"${windowNote}:`, ''];
   let total = 0;
   for (const r of results) {
     const title = sanitizeUntrusted(r.title || normalizeUrl(r.url) || r.url).trim();
